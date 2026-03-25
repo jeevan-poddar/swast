@@ -14,6 +14,7 @@ export async function POST(req) {
     const data = await req.json();
     const existingUser = await User.findOne({ email: data.email });
     if (existingUser) {
+      console.log("User with this email already exists:", data.email);
       return NextResponse.json(
         {
           message: "User with this email already exists",
@@ -28,6 +29,7 @@ export async function POST(req) {
       password: data.password,
     });
     await user.save();
+    console.log("User created successfully:", user);
     return NextResponse.json(
       {
         message: "User created successfully",
@@ -37,6 +39,7 @@ export async function POST(req) {
 
     );
   } catch (error) {
+    console.log("Error in POST /api/createUser:", error.message);
     console.log("Error creating user:", error.message);
     return NextResponse.json(
       { message: "Error creating user",

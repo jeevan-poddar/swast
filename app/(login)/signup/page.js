@@ -1,10 +1,13 @@
 "use client";
+import { signIn } from "next-auth/react";
 import Link from "next/link";
-import React, { useState } from "react";
+import { useRouter } from "next/navigation";
+import React, { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 
 const page = () => {
   const [error, seterror] = useState("");
+  const router = useRouter();
   const {
     register,
     formState: { errors },
@@ -34,6 +37,18 @@ const page = () => {
     console.log(res);
     if (res.status === 201) {
       seterror("");
+      const signin = await signIn("credentials", {
+        email: data.email,
+        password: data.password,
+        redirect: false,
+      });
+      if (signin.ok) {
+        router.push("/");
+      } else if (signin.error == "CredentialsSignin") {
+        seterror("Invalid email or password");
+      } else {
+        seterror(signin.error || "Login failed");
+      }
     } else if (res.status === 400) {
       seterror("User with this email already exists");
     } else {

@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
 let User;
 
 try {
-  User = mongoose.model("User", userSchema);
+  User = mongoose.model("User", userSchema, "User");
 } catch (error) {
   User = mongoose.model("User");
 }
