@@ -1,7 +1,5 @@
 import mongoose from "mongoose";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "../auth/[...nextauth]/route";
 import activity from "@/app/model/activitySchema";
 
 try {
@@ -13,7 +11,6 @@ try {
 
 export async function POST(req) {
   try {
-    const session = await getServerSession(authOptions);
     const data = await req.json();
     if (data.function === "delete") {
       console.log("Deleting activity with ID:", data.index);
@@ -55,9 +52,8 @@ export async function POST(req) {
         { status: 200 },
       );
     }
-    console.log("Adding new activity for user ID:", session?.user?._id);
     const newActivity = new activity({
-      user_id: session?.user?._id,
+      user_id: data._id,
       activityName: data.activityName,
       duration: data.duration,
       startTime: data.startTime,

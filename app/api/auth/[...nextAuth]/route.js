@@ -48,18 +48,28 @@ export const authOptions = {
 const handler = NextAuth({
   ...authOptions,
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       if (user) {
-        token._id = user._id || user.id;
+        token._id = user._id ;
         token.email = user.email;
         token.name = user.name;
+        token.provider = account?.provider || token.provider || "credentials";
       }
+
+      if (!token.provider) {
+        token.provider = token.picture ? "google" : "credentials";
+      }
+
       return token;
     },
     async session({ session, token }) {
+      const provider =
+        token.provider || (token.picture ? "google" : "credentials");
       session.user._id = token._id;
       session.user.email = token.email;
       session.user.name = token.name;
+      session.user.provider = provider;
+      session.provider = provider;
       return session;
     },
     async signIn({ user, account }) {
@@ -90,31 +100,6 @@ const handler = NextAuth({
               "User creation/check completed for Google sign-in:",
               user.email,
             );
-            const pass= await fetch(
-              `${process.env.NEXTAUTH_URL}/api/getPass`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  email: user.email,
-                }),
-              },
-            );
-            const passRes = await pass.json();
-            console.log("Fetched password for Google user:", passRes);
-            const signin = await fetch(
-              `${process.env.NEXTAUTH_URL}/api/loginUser`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  email: user.email,
-                  password: passRes.password,
-                }),
-              },
-            );
-            const signinResult = await signin.json();
-            console.log("Sign-in result for Google user:", signinResult);
           }
         } catch (error) {
           console.error("Error creating user during sign-in:", error);

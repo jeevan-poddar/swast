@@ -1,5 +1,4 @@
-import mongoose, { Schema } from "mongoose";
-import { use } from "react";
+import mongoose from "mongoose";
 
 const activitySchema = new mongoose.Schema({
   user_id: String,

@@ -1,6 +1,6 @@
 "use client";
 import calculateAge from "@/action/ageCalculator";
-import {  signOut, useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import React, { useEffect } from "react";
 import { useForm } from "react-hook-form";
 

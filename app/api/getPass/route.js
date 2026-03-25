@@ -11,7 +11,9 @@ try {
 
 export async function POST(req) {
   try {
+    
     const { email } = await req.json();
+    
     const user = await User.findOne({ email: email });
     return NextResponse.json({ password: user.password }, { status: 200 });
   } catch (error) {

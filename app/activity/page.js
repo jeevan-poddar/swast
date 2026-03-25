@@ -1,19 +1,26 @@
 "use client";
-import React, { useState } from "react";
-import { signIn, signOut, useSession } from "next-auth/react";
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import { useForm } from "react-hook-form";
 
 const page = () => {
   const [activityList, setActivityList] = useState([]);
   const [indexForUpdate, setIndexForUpdate] = useState("");
   const [active, setActive] = useState("");
+  const { data: session, status } = useSession();
   const fetchActivity = async () => {
+    if (!session?.user?._id) {
+      return;
+    }
+    console.log("Fetching activities for user_id:", session?.user?._id);
     const a = await fetch("/api/activityFetch", {
-      method: "GET",
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        user_id: session?.user?._id,
+      }),
     });
     const res = await a.json();
     console.log(res.activities);
@@ -21,7 +28,7 @@ const page = () => {
   };
   useEffect(() => {
     fetchActivity();
-  }, []);
+  }, [session]);
   const {
     register,
     formState: { errors },
@@ -38,7 +45,7 @@ const page = () => {
       body: JSON.stringify({
         ...data,
         function: "add",
-        
+        _id: session?.user?._id,
       }),
     });
     const res = await a.json();
