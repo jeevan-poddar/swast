@@ -13,7 +13,7 @@ export async function POST(req) {
   try {
     const data = await req.json();
     if (data.function === "delete") {
-      console.log("Deleting activity with ID:", data.index);
+      // console.log("Deleting activity with ID:", data.index);
       const res = await activity.findByIdAndDelete(data.index);
       if (!res) {
         return NextResponse.json(
@@ -28,13 +28,13 @@ export async function POST(req) {
     }
 
     if (data.function === "edit") {
-      console.log("Editing activity with ID:", data.index);
-      console.log("Updated data:", {
-        activityName: data.activityName,
-        duration: data.duration,
-        startTime: data.startTime,
-        days: data.days,
-      });
+      // console.log("Editing activity with ID:", data.index);
+      // console.log("Updated data:", {
+      //   activityName: data.activityName,
+      //   duration: data.duration,
+      //   startTime: data.startTime,
+      //   days: data.days,
+      // });
       const res = await activity.findByIdAndUpdate(data.index, {
         activityName: data.activityName,
         duration: data.duration,

@@ -34,7 +34,7 @@ const page = () => {
       }),
     });
     const res = await a.json();
-    console.log(res);
+    // console.log(res);
     if (res.status === 201) {
       seterror("");
       const signin = await signIn("credentials", {

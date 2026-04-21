@@ -23,7 +23,7 @@ const page = () => {
       }),
     });
     const res = await a.json();
-    console.log(res.activities);
+    // console.log(res.activities);
     setActivityList(res.activities);
   };
   useEffect(() => {
@@ -49,7 +49,7 @@ const page = () => {
       }),
     });
     const res = await a.json();
-    console.log(res.message);
+    // console.log(res.message);
     setActive("");
     fetchActivity();
   };
@@ -66,12 +66,12 @@ const page = () => {
       }),
     });
     const res = await a.json();
-    console.log(res.message);
+    // console.log(res.message);
     setActive("");
     fetchActivity();
   };
   const handleDelete = async (activityId) => {
-    console.log("Deleting activity with ID:", activityId);
+    // console.log("Deleting activity with ID:", activityId);
     const a = await fetch("/api/activityUpdate", {
       method: "POST",
       headers: {
@@ -83,7 +83,7 @@ const page = () => {
       }),
     });
     const res = await a.json();
-    console.log(res.message);
+    // console.log(res.message);
     setActive("");
     fetchActivity();
   };
@@ -136,7 +136,7 @@ const page = () => {
                 </button>
                 <button
                   onClick={() => {
-                    console.log("Deleting activity with ID:", activity._id);
+                    // console.log("Deleting activity with ID:", activity._id);
                     handleDelete(activity._id);
                   }}
                   className="bg-red-500 text-white py-1 px-2 rounded-md h-fit"

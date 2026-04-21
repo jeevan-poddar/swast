@@ -8,7 +8,7 @@ export const authOptions = {
       credentials: {},
       async authorize(credentials) {
         try {
-          console.log("Authorizing user with credentials:", credentials);
+          // console.log("Authorizing user with credentials:", credentials);
           const a = await fetch(`http://localhost:3000/api/loginUser`, {
             method: "POST",
             headers: {
@@ -17,7 +17,7 @@ export const authOptions = {
             body: JSON.stringify(credentials),
           });
           const res = await a.json();
-          console.log(res);
+          // console.log(res);
           if (res.success && res.user) {
             return {
               _id: res.user._id,
@@ -75,10 +75,10 @@ const handler = NextAuth({
     async signIn({ user, account }) {
       if (account.provider === "google") {
         try {
-          console.log(
-            "Google sign-in detected, creating user if not exists:",
-            user,
-          );
+          // console.log(
+          //   "Google sign-in detected, creating user if not exists:",
+          //   user,
+          // );
           const res = await fetch(
             `${process.env.NEXTAUTH_URL}/api/createUser`,
             {

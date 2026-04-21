@@ -12,9 +12,9 @@ try {
 export async function POST(req) {
   try {
     const { user_id } = await req.json();
-    console.log("Fetching activities for user_id:", user_id);
     const activities = await activity.find({ user_id });
     return NextResponse.json({ activities }, { status: 200 });
+
   } catch (error) {
     console.error("Error fetching activities:", error.message);
     return NextResponse.json(

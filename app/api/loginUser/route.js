@@ -27,7 +27,7 @@ export async function POST(req) {
         status: 400,
       });
     }
-    console.log("User logged in successfully:", user);
+    // console.log("User logged in successfully:", user);
     return NextResponse.json({
       message: "Login successful",
       success: true,

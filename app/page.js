@@ -1,15 +1,17 @@
 "use client";
 import { useSession, signOut, signIn } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect } from "react";
 
 export default function Home() {
   const { data: session, status } = useSession();
+  const router = useRouter();
 
   useEffect(() => {
     if (status !== "authenticated") return;
 
-    console.log("Session provider:", session?.provider);
+    // console.log("Session provider:", session?.provider);
     if (session?.provider === "google") {
       const googleToCredentials = async () => {
         try {
@@ -21,17 +23,22 @@ export default function Home() {
             }),
           });
           const passRes = await pass.json();
-          console.log("Fetched password for Google user:", passRes);
+          // console.log("Fetched password for Google user:", passRes);
           const signin = await signIn("credentials", {
             email: session?.user?.email,
             password: passRes.password,
             redirect: false,
           });
-          console.log("Sign-in result after Google credentials handling:", signin);
+          // console.log("Sign-in result after Google credentials handling:", signin);
           if (signin.ok) {
-            console.log("Successfully signed in with credentials after Google auth");
+            console.log(
+              "Successfully signed in with credentials after Google auth",
+            );
           } else {
-            console.error("Failed to sign in with credentials after Google auth:", signin.error);
+            console.error(
+              "Failed to sign in with credentials after Google auth:",
+              signin.error,
+            );
           }
         } catch (error) {
           console.error(
@@ -43,6 +50,30 @@ export default function Home() {
       googleToCredentials();
     }
   }, [session, status]);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+
+    const fetchProfileStatus = async () => {
+      try {
+        const res = await fetch("/api/profileFetch");
+        const data = await res.json();
+
+        console.log("Profile status:", data?.message);
+
+        if (data?.message === "Profile does not exist") {
+          console.log(
+            "Profile does not exist, redirecting to profile creation page...",
+          );
+          router.push("/profile");
+        }
+      } catch (error) {
+        console.error("Error while checking profile status:", error.message);
+      }
+    };
+
+    fetchProfileStatus();
+  }, [status, router]);
 
   return (
     <div className="">
@@ -59,6 +90,18 @@ export default function Home() {
       </div>
       <div className="">
         Click to go to <Link href="/activity">activity</Link>
+      </div>
+      <div className="">
+        Click to go to <Link href="/nutrient">Nutrients</Link>
+      </div>
+      <div className="">
+        Click to go to <Link href="/detectFood">Detect Food</Link>
+      </div>
+      <div className="">
+        Click to go to <Link href="/meal-tracker">Meal Tracker Validation</Link>
+      </div>
+      <div className="">
+        Click to go to <Link href="/diet-plan">Weekly Diet Plan</Link>
       </div>
     </div>
   );

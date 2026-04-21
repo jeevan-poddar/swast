@@ -1,10 +1,12 @@
 "use client";
 import calculateAge from "@/action/ageCalculator";
 import { signOut, useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import React, { useEffect } from "react";
 import { useForm } from "react-hook-form";
 
 const page = () => {
+  const router = useRouter();
   const {
     register,
     formState: { errors },
@@ -58,7 +60,7 @@ const page = () => {
   }, [setValue, session?.user?.email, session?.user?.name]);
 
   const onSubmit = async (data) => {
-    console.log(data);
+    // console.log(data);
     const a = await fetch("/api/profileUpdate", {
       method: "POST",
       headers: {
@@ -86,6 +88,9 @@ const page = () => {
     <div>
       <div className="">
         <h1 className="text-2xl font-bold">Profile</h1>
+        <button onClick={()=>{
+          router.push("/")
+        }}> Go to Home</button>
         <form
           onSubmit={handleSubmit(onSubmit)}
           className="flex flex-col gap-4 w-30/100 mx-auto mt-10"

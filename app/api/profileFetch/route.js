@@ -26,7 +26,7 @@ export async function GET() {
         { status: 404 },
       );
     }
-    console.log("Success");
+    // console.log("Success");
     return NextResponse.json({
       message: "Profile fetched successfully",
       profile: isProfileExist.toObject(),
