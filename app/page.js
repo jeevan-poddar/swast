@@ -76,33 +76,67 @@ export default function Home() {
   }, [status, router]);
 
   return (
-    <div className="">
-      I am home
-      <div className="">
-        Click to go to <Link href="/signin">signin</Link>
-      </div>
-      <div className="">
-        Click to go to
-        <button onClick={() => signOut()}>Sign out</button>
-      </div>
-      <div className="">
-        Click to go to <Link href="/profile">profile</Link>
-      </div>
-      <div className="">
-        Click to go to <Link href="/activity">activity</Link>
-      </div>
-      <div className="">
-        Click to go to <Link href="/nutrient">Nutrients</Link>
-      </div>
-      <div className="">
-        Click to go to <Link href="/detectFood">Detect Food</Link>
-      </div>
-      <div className="">
-        Click to go to <Link href="/meal-tracker">Meal Tracker Validation</Link>
-      </div>
-      <div className="">
-        Click to go to <Link href="/diet-plan">Weekly Diet Plan</Link>
-      </div>
-    </div>
+    <main className="min-h-screen p-6 md:p-10">
+      <section className="mx-auto max-w-6xl rounded-3xl border border-red-900/50 bg-black/50 p-6 shadow-2xl shadow-red-950/40 md:p-10">
+        <div className="mb-8 flex flex-col gap-4 border-b border-red-900/40 pb-6 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-sm uppercase tracking-[0.28em] text-red-400">
+              Swast Fitness
+            </p>
+            <h1 className="text-4xl font-black text-white md:text-5xl">
+              Redline Performance Hub
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm text-zinc-300">
+              Your full fitness command center for profile tracking, activity,
+              nutrition analytics, AI food scan, meal logging, and weekly diet
+              strategy.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => signIn("google", { callbackUrl: "/" })}
+              className="bg-red-700"
+            >
+              Continue with Google
+            </button>
+            <button onClick={() => signOut()} className="bg-zinc-900">
+              Sign out
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {[
+            { href: "/signin", title: "Sign In", note: "Access your account" },
+            { href: "/signup", title: "Sign Up", note: "Create an account" },
+            { href: "/profile", title: "Profile", note: "Set your fitness base" },
+            { href: "/activity", title: "Activity", note: "Plan workouts" },
+            { href: "/nutrient", title: "Nutrients", note: "View daily targets" },
+            { href: "/detectFood", title: "Detect Food", note: "AI food scanner" },
+            {
+              href: "/meal-tracker",
+              title: "Meal Tracker",
+              note: "Calendar and meal logs",
+            },
+            {
+              href: "/diet-plan",
+              title: "Diet Plan",
+              note: "Generate weekly budget plans",
+            },
+          ].map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="group rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5 transition hover:border-red-700 hover:bg-zinc-900"
+            >
+              <p className="text-lg font-semibold text-white transition group-hover:text-red-300">
+                {item.title}
+              </p>
+              <p className="mt-1 text-sm text-zinc-400">{item.note}</p>
+            </Link>
+          ))}
+        </div>
+      </section>
+    </main>
   );
 }

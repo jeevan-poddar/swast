@@ -56,61 +56,56 @@ const page = () => {
     }
   };
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center">
-      <h1 className="text-2xl font-bold mb-4">Sign Up</h1>
-      <form
-        onSubmit={handleSubmit(onSubmit)}
-        className="flex flex-col gap-4 w-30/100 mx-auto mt-10"
-      >
-        {error && <p className="text-red-500">{error}</p>}
-        <label htmlFor="name">Name:</label>
-        <input
-          className=" border-2 border-green-500"
-          {...register("name", { required: "Name is required" })}
-          aria-invalid={errors.name ? "true" : "false"}
-        />
-        {errors.name && <p role="alert">{errors.name.message}</p>}
-        <label htmlFor="email">Email:</label>
-        <input
-          className=" border-2 border-green-500"
-          {...register("email", { required: "Email Address is required" })}
-          aria-invalid={errors.email ? "true" : "false"}
-        />
-        {errors.email && <p role="alert">{errors.email.message}</p>}
-        <label htmlFor="password">Password:</label>
-        <input
-          className=" border-2 border-green-500"
-          {...register("password", { required: "Password is required" })}
-          aria-invalid={errors.password ? "true" : "false"}
-        />
-        {errors.password && <p role="alert">{errors.password.message}</p>}
-        <label htmlFor="confirmPassword">Confirm Password:</label>
-        <input
-          className=" border-2 border-green-500"
-          {...register("confirmPassword", {
-            required: "Please confirm your password",
-          })}
-          aria-invalid={errors.confirmPassword ? "true" : "false"}
-        />
-        {errors.confirmPassword && (
-          <p role="alert">{errors.confirmPassword.message}</p>
-        )}
-        <div className=" flex items-center justify-center">
-          <input
-            className=" p-2 px-4 rounded-full bg-blue-500 w-fit text-white"
-            type="submit"
-          />
-        </div>
-      </form>
-      <div className="mt-4">
-        <p>
-          Already have an account?
-          <Link href="/signin" className="text-blue-500 hover:underline">
-            Sign in
-          </Link>
+    <main className="flex min-h-screen items-center justify-center p-5">
+      <section className="w-full max-w-md rounded-3xl border border-zinc-800 bg-black/70 p-7 shadow-2xl shadow-red-950/30">
+        <p className="mb-1 text-xs font-semibold uppercase tracking-[0.22em] text-red-400">
+          Join Swast
         </p>
-      </div>
-    </div>
+        <h1 className="mb-5 text-3xl font-black text-white">Create Account</h1>
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+          {error && <p className="text-sm text-red-300">{error}</p>}
+          <label htmlFor="name">Name</label>
+          <input
+            {...register("name", { required: "Name is required" })}
+            aria-invalid={errors.name ? "true" : "false"}
+          />
+          {errors.name && <p role="alert">{errors.name.message}</p>}
+          <label htmlFor="email">Email</label>
+          <input
+            {...register("email", { required: "Email Address is required" })}
+            aria-invalid={errors.email ? "true" : "false"}
+          />
+          {errors.email && <p role="alert">{errors.email.message}</p>}
+          <label htmlFor="password">Password</label>
+          <input
+            type="password"
+            {...register("password", { required: "Password is required" })}
+            aria-invalid={errors.password ? "true" : "false"}
+          />
+          {errors.password && <p role="alert">{errors.password.message}</p>}
+          <label htmlFor="confirmPassword">Confirm Password</label>
+          <input
+            type="password"
+            {...register("confirmPassword", {
+              required: "Please confirm your password",
+            })}
+            aria-invalid={errors.confirmPassword ? "true" : "false"}
+          />
+          {errors.confirmPassword && (
+            <p role="alert">{errors.confirmPassword.message}</p>
+          )}
+          <input type="submit" value="Create Account" />
+        </form>
+        <div className="mt-4">
+          <p className="text-sm text-zinc-400">
+            Already have an account?{" "}
+            <Link href="/signin" className="font-semibold text-red-300">
+              Sign in
+            </Link>
+          </p>
+        </div>
+      </section>
+    </main>
   );
 };
 

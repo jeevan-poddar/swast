@@ -1,1 +1,80 @@
 @import "tailwindcss";
+
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-elevated: #121212;
+  --bg-card: #161616;
+  --text-primary: #f5f5f5;
+  --text-muted: #a3a3a3;
+  --border-primary: #2a2a2a;
+  --accent: #ef4444;
+  --accent-strong: #dc2626;
+}
+
+html,
+body {
+  background:
+    radial-gradient(circle at top right, rgba(220, 38, 38, 0.16), transparent 40%),
+    radial-gradient(circle at bottom left, rgba(239, 68, 68, 0.12), transparent 35%),
+    var(--bg-primary);
+  color: var(--text-primary);
+}
+
+* {
+  border-color: var(--border-primary);
+}
+
+a {
+  color: #f87171;
+}
+
+a:hover {
+  color: #fca5a5;
+}
+
+input,
+select,
+textarea {
+  background: #111111;
+  color: var(--text-primary);
+  border: 1px solid #3a3a3a;
+  border-radius: 0.75rem;
+  padding: 0.625rem 0.75rem;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2);
+}
+
+button,
+input[type="submit"] {
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  color: #fff;
+  border-radius: 0.75rem;
+  font-weight: 600;
+  padding: 0.6rem 1rem;
+  transition: transform 0.16s ease, opacity 0.16s ease;
+}
+
+button:hover,
+input[type="submit"]:hover {
+  opacity: 0.92;
+}
+
+button:active,
+input[type="submit"]:active {
+  transform: scale(0.98);
+}
+
+label {
+  color: #f1f5f9;
+  font-weight: 500;
+}
+
+p {
+  color: var(--text-muted);
+}
