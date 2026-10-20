@@ -17,10 +17,14 @@ async function requireCurrentUser(requestedUserId) {
   const userId = session?.user?._id;
 
   if (!userId) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
+    return {
+      error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    };
   }
   if (requestedUserId && requestedUserId !== userId) {
-    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+    return {
+      error: NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+    };
   }
 
   return { userId };
@@ -39,7 +43,7 @@ export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get("userId");
-    const date   = searchParams.get("date"); // YYYY-MM-DD
+    const date = searchParams.get("date"); // YYYY-MM-DD
 
     const auth = await requireCurrentUser(userId);
     if (auth.error) return auth.error;
@@ -47,7 +51,7 @@ export async function GET(req) {
     if (!DATE_PATTERN.test(date || "")) {
       return NextResponse.json(
         { error: "A valid date is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -60,25 +64,34 @@ export async function GET(req) {
 
     if (error) {
       console.error("[meal-log GET] Supabase error:", error.message);
-      return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Internal Server Error" },
+        { status: 500 },
+      );
     }
 
     if (!row) {
       // Return default structure (not persisted yet)
-      return NextResponse.json({
-        userId: auth.userId,
-        date,
-        mealsList: DEFAULT_MEALS,
-        breakfast: normalizeMealSlot(),
-        lunch:     normalizeMealSlot(),
-        dinner:    normalizeMealSlot(),
-      }, { status: 200 });
+      return NextResponse.json(
+        {
+          userId: auth.userId,
+          date,
+          mealsList: DEFAULT_MEALS,
+          breakfast: normalizeMealSlot(),
+          lunch: normalizeMealSlot(),
+          dinner: normalizeMealSlot(),
+        },
+        { status: 200 },
+      );
     }
 
     return NextResponse.json(normalizeMealLog(row), { status: 200 });
   } catch (error) {
     console.error("[meal-log GET] Error:", error.message);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 },
+    );
   }
 }
 
@@ -86,14 +99,21 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     const body = await req.json();
-    const { userId: requestedUserId, date, mealType, status, items, totalNutrients } = body;
+    const {
+      userId: requestedUserId,
+      date,
+      mealType,
+      status,
+      items,
+      totalNutrients,
+    } = body;
     const auth = await requireCurrentUser(requestedUserId);
     if (auth.error) return auth.error;
 
     if (!isValidMealRequest({ date, mealType, status })) {
       return NextResponse.json(
         { error: "Invalid meal log request" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -113,13 +133,16 @@ export async function POST(req) {
     const mealPayload = {
       status,
       items: items ?? currentSlot?.items ?? [],
-      total_nutrients: totalNutrients ?? currentSlot?.total_nutrients ?? currentSlot?.totalNutrients ?? {},
+      total_nutrients:
+        totalNutrients ??
+        currentSlot?.total_nutrients ??
+        currentSlot?.totalNutrients ??
+        {},
     };
-
     if (!existing) {
       // Create new log row
       const newRow = {
-        user_id:    userId,
+        user_id: auth.userId,
         date,
         meals_list: [...DEFAULT_MEALS, ...(isFixedMeal ? [] : [mealType])],
       };
@@ -128,7 +151,9 @@ export async function POST(req) {
       } else {
         newRow.extra_meals = { [mealType]: mealPayload };
       }
-      const { error: insertError } = await supabaseAdmin.from("meal_logs").insert(newRow);
+      const { error: insertError } = await supabaseAdmin
+        .from("meal_logs")
+        .insert(newRow);
       if (insertError && insertError.code !== "23505") throw insertError;
 
       // A competing first save may have created the row. Apply this request to it.
@@ -166,7 +191,6 @@ export async function POST(req) {
         .eq("date", date);
       if (error) throw error;
     }
-
     // Return updated row
     const { data: updated, error: updatedError } = await supabaseAdmin
       .from("meal_logs")
@@ -175,11 +199,13 @@ export async function POST(req) {
       .eq("date", date)
       .single();
     if (updatedError) throw updatedError;
-
     return NextResponse.json(normalizeMealLog(updated), { status: 200 });
   } catch (error) {
     console.error("[meal-log POST] Error:", error.message);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 },
+    );
   }
 }
 
@@ -188,14 +214,20 @@ export async function DELETE(req) {
   try {
     const { searchParams } = new URL(req.url);
     const requestedUserId = searchParams.get("userId");
-    const date     = searchParams.get("date");
+    const date = searchParams.get("date");
     const mealType = searchParams.get("mealType");
 
     const auth = await requireCurrentUser(requestedUserId);
     if (auth.error) return auth.error;
 
-    if (!DATE_PATTERN.test(date || "") || !MEAL_NAME_PATTERN.test(mealType || "")) {
-      return NextResponse.json({ error: "Missing parameters" }, { status: 400 });
+    if (
+      !DATE_PATTERN.test(date || "") ||
+      !MEAL_NAME_PATTERN.test(mealType || "")
+    ) {
+      return NextResponse.json(
+        { error: "Missing parameters" },
+        { status: 400 },
+      );
     }
 
     const { data: existing, error: existingError } = await supabaseAdmin
@@ -217,7 +249,9 @@ export async function DELETE(req) {
       // Reset fixed meal to default
       updates[mealType] = { ...DEFAULT_MEAL_SLOT };
     } else {
-      updates.meals_list = (existing.meals_list ?? DEFAULT_MEALS).filter((m) => m !== mealType);
+      updates.meals_list = (existing.meals_list ?? DEFAULT_MEALS).filter(
+        (m) => m !== mealType,
+      );
       const extras = { ...(existing.extra_meals ?? {}) };
       delete extras[mealType];
       updates.extra_meals = extras;
@@ -241,6 +275,9 @@ export async function DELETE(req) {
     return NextResponse.json(normalizeMealLog(updated), { status: 200 });
   } catch (error) {
     console.error("[meal-log DELETE] Error:", error.message);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 },
+    );
   }
 }
