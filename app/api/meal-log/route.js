@@ -116,7 +116,7 @@ export async function POST(req) {
         { status: 400 },
       );
     }
-
+    console.log(1);
     // Check if a row already exists
     const { data: existing, error: existingError } = await supabaseAdmin
       .from("meal_logs")
@@ -139,6 +139,7 @@ export async function POST(req) {
         currentSlot?.totalNutrients ??
         {},
     };
+    console.log(2);
     if (!existing) {
       // Create new log row
       const newRow = {
@@ -155,7 +156,6 @@ export async function POST(req) {
         .from("meal_logs")
         .insert(newRow);
       if (insertError && insertError.code !== "23505") throw insertError;
-
       // A competing first save may have created the row. Apply this request to it.
       if (insertError?.code === "23505") {
         const updates = isFixedMeal
@@ -167,6 +167,7 @@ export async function POST(req) {
           .eq("user_id", auth.userId)
           .eq("date", date);
         if (retryError) throw retryError;
+        console.log("Row already exists, applied update instead");
       }
     } else {
       // Update existing row
@@ -184,13 +185,16 @@ export async function POST(req) {
         updates.meals_list = [...currentMealsList, mealType];
       }
 
-      await supabaseAdmin
+      console.log(3);
+      const { error } = await supabaseAdmin
         .from("meal_logs")
         .update(updates)
         .eq("user_id", auth.userId)
         .eq("date", date);
       if (error) throw error;
     }
+
+    console.log(4);
     // Return updated row
     const { data: updated, error: updatedError } = await supabaseAdmin
       .from("meal_logs")
@@ -199,9 +203,11 @@ export async function POST(req) {
       .eq("date", date)
       .single();
     if (updatedError) throw updatedError;
+    console.log(5);
     return NextResponse.json(normalizeMealLog(updated), { status: 200 });
-  } catch (error) {
-    console.error("[meal-log POST] Error:", error.message);
+  } catch (err) {
+    console.log(99);
+    console.error("[meal-log POST] Error:", err.message);
     return NextResponse.json(
       { error: "Internal Server Error" },
       { status: 500 },
