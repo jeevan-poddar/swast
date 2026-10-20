@@ -1,32 +1,44 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
+import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import {
   UploadCloud,
   Trash2,
   Search,
   Camera,
   Loader2,
-  PieChart,
-  ChevronRight,
+  ChevronLeft,
   Flame,
-  Wheat,
-  Beef,
-  PlusCircle,
-  Image as ImageIcon,
+  Activity,
+  Zap,
+  Shield,
+  Plus,
+  Minus,
   CheckCircle2,
+  AlertCircle,
+  ScanLine,
+  Utensils,
+  Sparkles,
+  ArrowRight,
 } from "lucide-react";
 
 export default function DetectFoodPage() {
+  const { data: session } = useSession();
+  const router = useRouter();
+
   const [isScanning, setIsScanning] = useState(false);
   const [photoSelected, setPhotoSelected] = useState(false);
   const [selectedImageURLs, setSelectedImageURLs] = useState([]);
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [hasAnalyzed, setHasAnalyzed] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
   const [items, setItems] = useState([]);
-  const [isError, setIsError] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
+  const [toast, setToast] = useState(null);
+  const [isSavingToLog, setIsSavingToLog] = useState(false);
+  const [targetMealSlot, setTargetMealSlot] = useState("lunch"); // breakfast | lunch | dinner
 
   const fileInputRef = useRef(null);
 
@@ -37,28 +49,32 @@ export default function DetectFoodPage() {
     };
   }, [selectedImageURLs]);
 
+  // Totals Calculation
   const totals = useMemo(() => {
     let totalKcal = 0;
     let totalProtein = 0;
     let totalCarbs = 0;
     let totalFat = 0;
+    let totalFiber = 0;
 
     items.forEach((item) => {
       const input = Number(item.userInput);
       if (!isNaN(input) && input > 0) {
-        const ratio = input / item.baseAmount;
-        totalKcal += item.kcal * ratio;
-        totalProtein += item.protein * ratio;
-        totalCarbs += item.carbs * ratio;
-        totalFat += item.fat * ratio;
+        const ratio = input / (item.baseAmount || 100);
+        totalKcal += (item.kcal || 0) * ratio;
+        totalProtein += (item.protein || 0) * ratio;
+        totalCarbs += (item.carbs || 0) * ratio;
+        totalFat += (item.fat || 0) * ratio;
+        totalFiber += (item.fiber_g || 0) * ratio;
       }
     });
 
     return {
       kcal: Math.round(totalKcal),
-      protein: Math.round(totalProtein),
-      carbs: Math.round(totalCarbs),
-      fat: Math.round(totalFat),
+      protein: Math.round(totalProtein * 10) / 10,
+      carbs: Math.round(totalCarbs * 10) / 10,
+      fat: Math.round(totalFat * 10) / 10,
+      fiber: Math.round(totalFiber * 10) / 10,
     };
   }, [items]);
 
@@ -72,12 +88,13 @@ export default function DetectFoodPage() {
     if (files.length === 0) return;
 
     setPhotoSelected(true);
-    setIsError(false);
     setSelectedFiles((prev) => [...prev, ...files]);
-    setSelectedImageURLs((prev) => [...prev, ...files.map(file => URL.createObjectURL(file))]);
+    setSelectedImageURLs((prev) => [
+      ...prev,
+      ...files.map((file) => URL.createObjectURL(file)),
+    ]);
     setHasAnalyzed(false);
-    
-    // Reset file input so same file could be added again ideally
+
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -85,485 +102,460 @@ export default function DetectFoodPage() {
     if (selectedFiles.length === 0) return;
 
     setIsScanning(true);
-    setIsError(false);
     setItems([]);
 
     try {
       const formData = new FormData();
       selectedFiles.forEach((file) => formData.append("file", file));
 
-      // 1. Detect food names via Gemini
+      // 1. Detect food names via Gemini Vision
       const res = await fetch("/api/detect-food", {
         method: "POST",
         body: formData,
       });
 
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to analyze images");
+      if (!res.ok) throw new Error("Could not detect food in image");
+      const detectedFoods = await res.json();
+
+      if (!Array.isArray(detectedFoods) || detectedFoods.length === 0) {
+        setToast({ type: "error", msg: "No recognizable food found in the image. Try another photo." });
+        setIsScanning(false);
+        return;
       }
 
-      const detectedNames = await res.json();
+      // 2. Calculate nutrition for each detected food
+      const resolvedItems = [];
+      for (const food of detectedFoods) {
+        const calcRes = await fetch("/api/calculate-food", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            foodName: food.name,
+            quantity: food.quantity,
+            unit: food.unit,
+          }),
+        });
 
-      if (!detectedNames || detectedNames.length === 0) {
-        throw new Error("No food items detected. Try adding clearer photos.");
-      }
-
-      // 2. Calculate nutrients for each food name
-      const fetchedItems = [];
-      for (const name of detectedNames) {
-        try {
-          const calcRes = await fetch("/api/calculate-food", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ foodName: name, quantity: 100 }),
-          });
-
-          if (calcRes.ok) {
-            const item = await calcRes.json();
-            fetchedItems.push({
-              ...item,
-              userInput: item.baseAmount || 100, // Pre-fill with base amount
-            });
-          }
-        } catch (calcError) {
-          console.error(`Error calculating nutrients for ${name}:`, calcError);
+        if (calcRes.ok) {
+          const itemData = await calcRes.json();
+          resolvedItems.push(itemData);
         }
       }
 
-      setItems((prev) => [...prev, ...fetchedItems]);
+      setItems(resolvedItems);
       setHasAnalyzed(true);
-    } catch (error) {
-      console.error("Error analyzing image:", error);
-      setIsError(true);
-      setErrorMessage(error.message || "An unexpected error occurred.");
+      setToast({ type: "success", msg: `Detected ${resolvedItems.length} food items!` });
+    } catch (err) {
+      console.error(err);
+      setToast({ type: "error", msg: "AI detection failed. You can search food manually below." });
     } finally {
       setIsScanning(false);
+      setTimeout(() => setToast(null), 4000);
     }
   };
 
   const handleManualSearch = async (e) => {
-    if (e.key === "Enter" && searchQuery.trim() !== "") {
-      const query = searchQuery.trim();
-      setSearchQuery("");
-      try {
-        const res = await fetch("/api/calculate-food", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ foodName: query, quantity: 100 }),
-        });
-        if (res.ok) {
-          const newItem = await res.json();
-          setItems((prev) => [
-            ...prev,
-            { ...newItem, userInput: newItem.baseAmount || 100 },
-          ]);
-        }
-      } catch (error) {
-        console.error("Error adding missing item:", error);
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+
+    setIsSearching(true);
+    try {
+      const res = await fetch("/api/calculate-food", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ foodName: searchQuery.trim(), quantity: 100 }),
+      });
+
+      if (res.ok) {
+        const newItem = await res.json();
+        setItems((prev) => [...prev, newItem]);
+        setSearchQuery("");
+        setToast({ type: "success", msg: `Added ${newItem.name}` });
+      } else {
+        setToast({ type: "error", msg: "Could not find nutrition data for this food." });
       }
+    } catch {
+      setToast({ type: "error", msg: "Error searching food." });
+    } finally {
+      setIsSearching(false);
+      setTimeout(() => setToast(null), 3000);
     }
   };
 
-  const handleRemove = (id) => {
-    setItems(items.filter((item) => item.id !== id));
-  };
-
-  const handleUpdateQuantity = (id, value) => {
-    setItems((items) =>
-      items.map((item) => (item.id === id ? { ...item, userInput: value } : item))
+  const handleQuantityChange = (id, newAmount) => {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, userInput: Math.max(0, newAmount) } : item
+      )
     );
   };
 
+  const handleRemove = (id) => {
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleClearAll = () => {
+    setSelectedFiles([]);
+    setSelectedImageURLs([]);
+    setItems([]);
+    setPhotoSelected(false);
+    setHasAnalyzed(false);
+  };
+
+  // Save detected foods into today's meal log
+  const handleSaveToMealLog = async () => {
+    if (!session?.user?._id) {
+      router.push("/signin");
+      return;
+    }
+    if (items.length === 0) return;
+
+    setIsSavingToLog(true);
+    try {
+      const todayStr = new Date().toISOString().split("T")[0];
+      const res = await fetch("/api/meal-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: session.user._id,
+          date: todayStr,
+          mealType: targetMealSlot,
+          items: items,
+          totalNutrients: totals,
+          status: "eaten",
+        }),
+      });
+
+      if (res.ok) {
+        setToast({
+          type: "success",
+          msg: `Logged successfully to Today's ${targetMealSlot.toUpperCase()}!`,
+        });
+      } else {
+        setToast({ type: "error", msg: "Failed to log meal." });
+      }
+    } catch {
+      setToast({ type: "error", msg: "Network error saving meal." });
+    } finally {
+      setIsSavingToLog(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 font-sans pb-40 overflow-x-hidden selection:bg-indigo-100">
-      {/* Header */}
-      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200/60 sticky top-0 z-40 px-6 flex items-center justify-center min-h-[72px]">
-        <h1 className="font-bold text-xl bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600 tracking-tight">
-          AI Vision Food Log
-        </h1>
-      </header>
-
-      <main className="w-full max-w-xl mx-auto p-4 md:p-6 flex flex-col gap-8 animate-in fade-in duration-500">
-        {/* Upload Zone */}
-        <section className="mt-2 w-full">
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            ref={fileInputRef}
-            onChange={handleFileChange}
-          />
-          {!photoSelected ? (
-            <div
-              onClick={handleSimulateUpload}
-              className="group relative overflow-hidden bg-white hover:bg-slate-50 border-2 border-dashed border-indigo-200/80 rounded-3xl p-10 flex flex-col items-center justify-center gap-5 cursor-pointer transition-all shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:scale-[1.01]"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/50 to-violet-50/50 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-              <div className="relative bg-gradient-to-br from-indigo-100 to-indigo-50 p-5 rounded-full text-indigo-600 shadow-inner group-hover:scale-110 transition-transform duration-300">
-                <Camera size={36} strokeWidth={1.5} />
-              </div>
-              <div className="text-center relative">
-                <h3 className="font-bold text-slate-800 text-lg mb-1.5">
-                  Scan Your Meal
-                </h3>
-                <p className="text-sm text-slate-500 font-medium max-w-[240px] mx-auto">
-                  Take a photo or upload from gallery to auto-detect ingredients
-                  and macros.
-                </p>
-              </div>
-            </div>
+    <main className="min-h-screen max-w-5xl mx-auto p-4 sm:p-6 lg:p-10 flex flex-col gap-6 text-zinc-100">
+      {/* ── Toast ──────────────────────────────────────────────────────── */}
+      {toast && (
+        <div
+          className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-xl border ${
+            toast.type === "success"
+              ? "bg-emerald-950/90 border-emerald-600/50 text-emerald-200"
+              : "bg-red-950/90 border-red-600/50 text-red-200"
+          }`}
+        >
+          {toast.type === "success" ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
           ) : (
-            <div className="relative rounded-3xl overflow-hidden h-56 bg-slate-900 shadow-xl border border-white/10 ring-1 ring-slate-900/5 group">
-              {selectedImageURLs.length > 0 && (
-                <div className="absolute inset-0 flex overflow-x-auto snap-x scrollbar-hide">
-                  {selectedImageURLs.map((url, index) => (
-                    <img
-                      key={index}
-                      src={url}
-                      alt={`Scanned Food ${index + 1}`}
-                      className="flex-shrink-0 w-full h-full object-cover opacity-60 group-hover:opacity-30 transition-opacity duration-700 snap-center"
-                    />
-                  ))}
-                </div>
-              )}
-
-              {isScanning ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/40 backdrop-blur-[6px] z-10 transition-all">
-                  <div className="relative flex items-center justify-center w-20 h-20 mb-5">
-                    <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full"></div>
-                    <div className="absolute inset-0 border-4 border-indigo-400 rounded-full border-t-transparent animate-spin"></div>
-                    <Loader2 className="animate-spin text-white w-8 h-8 absolute" />
-                  </div>
-                  <p className="text-white font-semibold text-lg tracking-wide animate-pulse">
-                    Analyzing Image...
-                  </p>
-                  <p className="text-indigo-200/80 text-sm mt-1 font-medium">
-                    Identifying ingredients and calories
-                  </p>
-                </div>
-              ) : isError ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-900/80 backdrop-blur-md p-6 text-center">
-                  <div className="bg-red-500/20 p-3 rounded-full mb-3">
-                    <Trash2 className="text-red-200" size={28} />
-                  </div>
-                  <p className="text-white font-semibold mb-2">{errorMessage}</p>
-                  <button
-                    onClick={() => {
-                      setPhotoSelected(false);
-                      setIsError(false);
-                    }}
-                    className="bg-white/20 hover:bg-white/30 backdrop-blur px-5 py-2 rounded-full text-sm font-medium text-white transition-colors"
-                  >
-                    Try Again
-                  </button>
-                </div>
-              ) : !hasAnalyzed ? (
-                <div className="absolute inset-0 flex flex-col justify-between p-5 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={handleSimulateUpload}
-                      className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-4 py-2 rounded-full text-xs font-semibold tracking-wide uppercase text-white transition-colors flex items-center gap-2"
-                    >
-                      <PlusCircle size={14} /> Add More
-                    </button>
-                    <button
-                      onClick={handleAnalyze}
-                      className="bg-indigo-600 hover:bg-indigo-500 backdrop-blur-md px-5 py-2 rounded-full text-xs font-semibold tracking-wide uppercase text-white transition-colors flex items-center gap-2 shadow-lg ring-1 ring-white/20 animate-pulse"
-                    >
-                      <Loader2 size={14} /> Analyze
-                    </button>
-                  </div>
-                  <div className="text-white flex items-center gap-2 opacity-80 pt-16">
-                    <h3 className="font-semibold text-sm">
-                      {selectedFiles.length} {selectedFiles.length === 1 ? 'image' : 'images'} ready to analyze
-                    </h3>
-                  </div>
-                </div>
-              ) : (
-                <div className="absolute inset-0 flex flex-col justify-between p-5 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={handleSimulateUpload}
-                      className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-4 py-2 rounded-full text-xs font-semibold tracking-wide uppercase text-white transition-colors flex items-center gap-2"
-                    >
-                      <PlusCircle size={14} /> Add Additional
-                    </button>
-                    <button
-                      onClick={() => {
-                        setPhotoSelected(false);
-                        setSelectedFiles([]);
-                        setSelectedImageURLs([]);
-                        setItems([]);
-                        setHasAnalyzed(false);
-                      }}
-                      className="bg-white/20 hover:bg-white/30 backdrop-blur-md px-4 py-2 rounded-full text-xs font-semibold tracking-wide uppercase text-white transition-colors flex items-center gap-2"
-                    >
-                      <Trash2 size={14} /> Clear All
-                    </button>
-                  </div>
-                  <div className="text-white flex items-center gap-2 animate-in slide-in-from-bottom-2">
-                    <CheckCircle2 className="text-emerald-400" size={20} />
-                    <h3 className="font-bold text-lg text-emerald-50">
-                      Scan Successful
-                    </h3>
-                  </div>
-                </div>
-              )}
-            </div>
+            <AlertCircle className="w-5 h-5 text-red-400" />
           )}
-        </section>
+          <span className="text-sm font-semibold">{toast.msg}</span>
+        </div>
+      )}
 
-        {/* Results & Items Section */}
-        {!isScanning && photoSelected && !isError && (
-          <section className="flex flex-col gap-5 animate-in fade-in slide-in-from-bottom-8 duration-500">
-            <div className="flex items-center justify-between px-1">
-              <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400 flex items-center gap-2.5">
-                Detected Items
-                <span className="bg-indigo-100 text-indigo-700 py-0.5 px-2.5 rounded-full text-[11px] font-bold">
-                  {items.length}
-                </span>
-              </h2>
+      {/* ── Header & Navigation ────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800/80">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/")}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-zinc-900 border border-zinc-800 hover:border-red-600 text-zinc-300 transition"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span>Dashboard</span>
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs uppercase tracking-wider font-bold text-pink-500">
+              Gemini Vision AI
+            </span>
+          </div>
+        </div>
+
+        <button
+          onClick={() => router.push("/meal-tracker")}
+          className="text-xs font-semibold text-zinc-400 hover:text-red-400 transition flex items-center gap-1 self-start sm:self-auto"
+        >
+          <span>View Meal Tracker Calendar</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div>
+        <h1 className="text-3xl sm:text-4xl font-black text-white">AI Meal &amp; Calorie Scanner</h1>
+        <p className="mt-1 text-sm text-zinc-400 max-w-2xl">
+          Upload or capture a photo of your meal. The computer vision model automatically identifies dishes and decomposes macronutrients.
+        </p>
+      </div>
+
+      {/* ── Upload & Scanner Dropzone ─────────────────────────────────── */}
+      <section className="relative rounded-3xl border border-zinc-800/80 bg-zinc-950/70 p-6 backdrop-blur-xl overflow-hidden shadow-2xl">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          multiple
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
+        {selectedImageURLs.length === 0 ? (
+          <div
+            onClick={handleSimulateUpload}
+            className="group cursor-pointer border-2 border-dashed border-zinc-800 hover:border-red-600/70 rounded-2xl p-8 sm:p-12 flex flex-col items-center justify-center text-center transition-all bg-zinc-900/40 hover:bg-zinc-900/80"
+          >
+            <div className="w-16 h-16 rounded-3xl bg-red-950/50 border border-red-800/40 text-red-400 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+              <Camera className="w-8 h-8" />
             </div>
-
-            <div className="flex flex-col gap-4">
-              {items.map((item) => {
-                const isFluidOrBulk =
-                  item.unitType === "ml" || item.unitType === "g";
-                const currentCalories = Math.round(
-                  ((Number(item.userInput) || 0) / item.baseAmount) * item.kcal
-                );
-
-                return (
-                  <div
-                    key={item.id}
-                    className="group bg-white rounded-2xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05),0_10px_20px_-2px_rgba(0,0,0,0.02)] border border-slate-100/50 overflow-hidden transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] hover:-translate-y-0.5"
-                  >
-                    <div className="p-5 flex flex-col gap-4">
-                      {/* Top Row: Info & Remove */}
-                      <div className="flex justify-between items-start">
-                        <div className="pr-4">
-                          <h3 className="font-bold text-slate-800 text-lg mb-1 leading-tight group-hover:text-indigo-600 transition-colors">
-                            {item.name}
-                          </h3>
-                          <div className="flex items-center gap-3 text-xs text-slate-500 font-medium">
-                            <span className="bg-slate-100 px-2.5 py-1 rounded-md text-slate-600">
-                              Base: {item.baseUnitLabel}
-                            </span>
-                            <span className="flex items-center gap-1 text-orange-600/80 bg-orange-50 px-2.5 py-1 rounded-md">
-                              <Flame size={12} className="text-orange-500" />{" "}
-                              {item.kcal} kcal
-                            </span>
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => handleRemove(item.id)}
-                          className="text-slate-300 hover:text-red-500 hover:bg-red-50 p-2.5 rounded-full transition-all flex-shrink-0"
-                          aria-label="Remove item"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-
-                      {/* Smart Input Row */}
-                      <div className="flex items-center gap-3 bg-slate-50/60 p-2.5 rounded-xl border border-slate-100">
-                        <div className="flex-1 flex items-center gap-2 pl-2">
-                          <label className="text-xs font-bold text-slate-400 uppercase tracking-wide whitespace-nowrap">
-                            Amount
-                          </label>
-                          <div className="relative flex-1 flex items-center bg-white border border-slate-200/80 rounded-lg shadow-sm focus-within:ring-2 focus-within:ring-indigo-500/50 transition-all">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const step = (item.unitType === 'g' || item.unitType === 'ml') ? 10 : 1;
-                                handleUpdateQuantity(item.id, Math.max(0, (Number(item.userInput) || 0) - step));
-                              }}
-                              className="px-3 py-2 h-full text-slate-400 hover:text-indigo-600 transition-colors text-xl font-medium leading-none focus:outline-none"
-                            >
-                              −
-                            </button>
-                            <div className="relative flex-1">
-                              <input
-                                type="number"
-                                value={item.userInput}
-                                onChange={(e) =>
-                                  handleUpdateQuantity(item.id, e.target.value)
-                                }
-                                className="w-full bg-transparent py-2.5 px-1 text-sm font-bold text-slate-700 outline-none text-center placeholder:text-slate-300"
-                                placeholder={"0"}
-                              />
-                            </div>
-                            <span className="text-[10px] text-slate-400 font-bold uppercase pointer-events-none pr-1">
-                              {item.unitType}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const step = (item.unitType === 'g' || item.unitType === 'ml') ? 10 : 1;
-                                handleUpdateQuantity(item.id, (Number(item.userInput) || 0) + step);
-                              }}
-                              className="px-3 py-2 h-full text-slate-400 hover:text-indigo-600 transition-colors text-xl font-medium leading-none focus:outline-none"
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                        <div className="text-right pr-2 pl-3 border-l border-slate-200/80 whitespace-nowrap min-w-[85px]">
-                          <span className="text-xl font-black text-slate-800">
-                            {currentCalories}
-                          </span>
-                          <span className="text-[10px] text-slate-500 ml-1 font-bold uppercase tracking-wider relative -top-1">
-                            kcal
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Quick Select Chips */}
-                      {isFluidOrBulk && (
-                        <div className="flex flex-wrap gap-2 pt-1">
-                          {[
-                            { label: "Small", val: 150 },
-                            { label: "Standard", val: 250 },
-                            { label: "Large", val: 500 },
-                          ].map((chip) => (
-                            <button
-                              key={chip.val}
-                              onClick={() =>
-                                handleUpdateQuantity(item.id, chip.val)
-                              }
-                              className="bg-indigo-50/50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold py-1.5 px-3.5 rounded-full transition-colors border border-indigo-100/50 hover:border-indigo-200 shadow-sm"
-                            >
-                              {chip.label} {chip.val}
-                              {item.unitType}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-
-              {items.length === 0 && (
-                <div className="text-center p-10 mt-2 text-slate-400 border-2 border-dashed border-slate-200 rounded-3xl bg-white/50">
-                  <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <PieChart className="text-slate-400" size={28} />
-                  </div>
-                  <h3 className="text-base font-bold text-slate-600 mb-1">
-                    No items found
-                  </h3>
-                  <p className="text-sm text-slate-400 max-w-[200px] mx-auto">
-                    Try rescanning or search manually below to add items.
-                  </p>
+            <h3 className="text-lg font-bold text-white mb-1">
+              Snap Photo or Drag &amp; Drop Meal Image
+            </h3>
+            <p className="text-xs text-zinc-400 max-w-sm mb-4">
+              Supports JPEG, PNG, WEBP. You can upload single or multiple food shots.
+            </p>
+            <span className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-bold text-white transition">
+              Choose Photo
+            </span>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Image Preview Grid */}
+            <div className="flex flex-wrap gap-3">
+              {selectedImageURLs.map((url, i) => (
+                <div key={i} className="relative w-28 h-28 rounded-2xl overflow-hidden border border-zinc-800 bg-zinc-900">
+                  <img src={url} alt={`Upload ${i + 1}`} className="w-full h-full object-cover" />
                 </div>
-              )}
+              ))}
+
+              <button
+                type="button"
+                onClick={handleSimulateUpload}
+                disabled={isScanning}
+                className="w-28 h-28 rounded-2xl border-2 border-dashed border-zinc-800 hover:border-zinc-700 flex flex-col items-center justify-center text-zinc-400 hover:text-white transition"
+              >
+                <Plus className="w-6 h-6 mb-1" />
+                <span className="text-[11px] font-semibold">Add More</span>
+              </button>
             </div>
 
-            {/* Manual Add Item */}
-            <div className="mt-4 pb-2">
-              <div className="relative group shadow-sm transition-all hover:shadow-[0_8px_30px_rgb(0,0,0,0.06)] rounded-2xl">
-                <PlusCircle
-                  className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors"
-                  size={20}
-                />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={handleManualSearch}
-                  placeholder="Missing something? Search to add..."
-                  className="w-full bg-white border-2 border-transparent border-slate-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-semibold text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500/30 transition-all hover:border-slate-200"
-                />
-                {searchQuery && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase font-bold text-indigo-400 bg-indigo-50 px-2 py-1 rounded">
-                    Press Enter
-                  </div>
+            {/* Scan Action Controls */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-zinc-800/70">
+              <button
+                type="button"
+                onClick={handleClearAll}
+                className="px-3.5 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-red-400 hover:bg-zinc-900 transition flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Clear All</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleAnalyze}
+                disabled={isScanning}
+                className="px-6 py-3 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold text-sm shadow-lg shadow-red-950/60 disabled:opacity-50 transition flex items-center gap-2"
+              >
+                {isScanning ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Analyzing Ingredients...</span>
+                  </>
+                ) : (
+                  <>
+                    <ScanLine className="w-4 h-4" />
+                    <span>Analyze Meal with AI</span>
+                  </>
                 )}
-              </div>
+              </button>
             </div>
-          </section>
+          </div>
         )}
-      </main>
+      </section>
 
-      {/* Live Macro Summary - Fixed Bottom */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-xl border-t border-slate-200/80 shadow-[0_-20px_60px_-15px_rgba(0,0,0,0.08)] transform transition-transform duration-500">
-        <div className="max-w-xl mx-auto px-5 pb-6 pt-5 space-y-5">
-          <div className="flex items-center justify-between px-1">
-            <div className="flex flex-col">
-              <span className="text-slate-400 text-[11px] font-bold uppercase tracking-widest mb-1">
-                Meal Summary
-              </span>
-              <div className="flex items-end gap-1">
-                <span className="text-4xl font-black text-slate-800 tracking-tighter leading-none">
-                  {totals.kcal}
-                </span>
-                <span className="text-sm font-bold text-slate-400 uppercase tracking-widest relative -top-1">
-                  kcal
-                </span>
-              </div>
+      {/* ── Manual Add / Search Bar ───────────────────────────────────── */}
+      <section className="p-4 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 backdrop-blur-md">
+        <form onSubmit={handleManualSearch} className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Add food item manually (e.g. 2 Boiled Eggs, 100g Paneer, Whey Protein)..."
+              className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-white text-sm focus:border-red-500 outline-none transition"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={isSearching || !searchQuery.trim()}
+            className="px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-800 font-semibold text-xs transition disabled:opacity-50"
+          >
+            {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add Item"}
+          </button>
+        </form>
+      </section>
+
+      {/* ── Nutrition Totals Snapshot HUD ──────────────────────────────── */}
+      {items.length > 0 && (
+        <section className="p-6 rounded-3xl bg-gradient-to-br from-zinc-950 via-black to-zinc-950 border border-red-900/40 shadow-2xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-4 border-b border-zinc-800/70">
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-red-400">Total Scanned Meal</div>
+              <h2 className="text-2xl font-black text-white">{items.length} Items Configured</h2>
             </div>
 
-            <div className="flex gap-2.5">
-              <div className="bg-orange-50/80 rounded-xl px-3.5 py-2.5 border border-orange-100 flex flex-col items-center min-w-[70px]">
-                <div className="flex items-center gap-1 mb-1">
-                  <Flame size={12} className="text-orange-500" />
-                  <span className="text-[10px] font-bold uppercase text-orange-600/80 tracking-widest">
-                    Pro
-                  </span>
-                </div>
-                <span className="text-base font-black text-orange-950">
-                  {totals.protein}
-                  <span className="text-[10px] ml-0.5 text-orange-600 font-bold">
-                    g
-                  </span>
-                </span>
-              </div>
+            {/* Meal Slot Picker & Log Action */}
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={targetMealSlot}
+                onChange={(e) => setTargetMealSlot(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-semibold text-zinc-200 outline-none focus:border-red-500"
+              >
+                <option value="breakfast">Breakfast</option>
+                <option value="lunch">Lunch</option>
+                <option value="dinner">Dinner</option>
+              </select>
 
-              <div className="bg-emerald-50/80 rounded-xl px-3.5 py-2.5 border border-emerald-100 flex flex-col items-center min-w-[70px]">
-                <div className="flex items-center gap-1 mb-1">
-                  <Wheat size={12} className="text-emerald-500" />
-                  <span className="text-[10px] font-bold uppercase text-emerald-600/80 tracking-widest">
-                    Carb
-                  </span>
-                </div>
-                <span className="text-base font-black text-emerald-950">
-                  {totals.carbs}
-                  <span className="text-[10px] ml-0.5 text-emerald-600 font-bold">
-                    g
-                  </span>
-                </span>
-              </div>
-
-              <div className="bg-yellow-50/80 rounded-xl px-3.5 py-2.5 border border-yellow-100 flex flex-col items-center min-w-[70px]">
-                <div className="flex items-center gap-1 mb-1">
-                  <Beef size={12} className="text-yellow-500" />
-                  <span className="text-[10px] font-bold uppercase text-yellow-600/80 tracking-widest">
-                    Fat
-                  </span>
-                </div>
-                <span className="text-base font-black text-yellow-950">
-                  {totals.fat}
-                  <span className="text-[10px] ml-0.5 text-yellow-600 font-bold">
-                    g
-                  </span>
-                </span>
-              </div>
+              <button
+                type="button"
+                onClick={handleSaveToMealLog}
+                disabled={isSavingToLog}
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold text-xs shadow-lg shadow-red-950 transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isSavingToLog ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                <span>Log to Meal Tracker</span>
+              </button>
             </div>
           </div>
 
-          <button
-            disabled={items.length === 0}
-            className="w-full bg-slate-900 focus:ring-4 focus:ring-slate-900/20 disabled:bg-slate-300 disabled:opacity-70 disabled:cursor-not-allowed hover:bg-slate-800 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-[0_8px_30px_rgba(15,23,42,0.2)] hover:shadow-[0_8px_30px_rgba(15,23,42,0.3)] group outline-none"
-          >
-            Confirm & Log Meal
-            <ChevronRight
-              size={20}
-              className="group-hover:translate-x-1.5 transition-transform"
-            />
-          </button>
-        </div>
-      </div>
-    </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/60 flex flex-col">
+              <span className="text-[11px] font-semibold text-zinc-400 uppercase">Energy</span>
+              <span className="text-2xl font-black text-white mt-1">
+                {totals.kcal} <span className="text-xs font-normal text-zinc-400">kcal</span>
+              </span>
+            </div>
+            <div className="p-4 rounded-2xl bg-red-950/30 border border-red-800/30 flex flex-col">
+              <span className="text-[11px] font-semibold text-red-400 uppercase">Protein</span>
+              <span className="text-2xl font-black text-red-300 mt-1">
+                {totals.protein} <span className="text-xs font-normal text-red-400">g</span>
+              </span>
+            </div>
+            <div className="p-4 rounded-2xl bg-amber-950/30 border border-amber-800/30 flex flex-col">
+              <span className="text-[11px] font-semibold text-amber-400 uppercase">Carbs</span>
+              <span className="text-2xl font-black text-amber-300 mt-1">
+                {totals.carbs} <span className="text-xs font-normal text-amber-400">g</span>
+              </span>
+            </div>
+            <div className="p-4 rounded-2xl bg-yellow-950/30 border border-yellow-800/30 flex flex-col">
+              <span className="text-[11px] font-semibold text-yellow-400 uppercase">Fats</span>
+              <span className="text-2xl font-black text-yellow-300 mt-1">
+                {totals.fat} <span className="text-xs font-normal text-yellow-400">g</span>
+              </span>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Detected Items List ────────────────────────────────────────── */}
+      {items.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <div className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+            Detected Ingredients &amp; Portions
+          </div>
+
+          <div className="grid grid-cols-1 gap-3">
+            {items.map((item) => {
+              const currentGrams = Number(item.userInput) || item.baseAmount || 100;
+              const ratio = currentGrams / (item.baseAmount || 100);
+              const itemKcal = Math.round((item.kcal || 0) * ratio);
+              const itemP = Math.round((item.protein || 0) * ratio * 10) / 10;
+              const itemC = Math.round((item.carbs || 0) * ratio * 10) / 10;
+              const itemF = Math.round((item.fat || 0) * ratio * 10) / 10;
+
+              return (
+                <div
+                  key={item.id}
+                  className="p-5 rounded-2xl bg-zinc-950/70 border border-zinc-800/80 hover:border-zinc-700 transition flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-bold text-base text-white">{item.name}</h4>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-400">
+                        {itemKcal} kcal
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 mt-2 text-xs font-semibold">
+                      <span className="px-2 py-0.5 rounded bg-red-950/50 text-red-300 border border-red-900/40">
+                        P: {itemP}g
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-amber-950/50 text-amber-300 border border-amber-900/40">
+                        C: {itemC}g
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-yellow-950/50 text-yellow-300 border border-yellow-900/40">
+                        F: {itemF}g
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Quantity Stepper & Delete */}
+                  <div className="flex items-center gap-3 self-end sm:self-center">
+                    <div className="flex items-center rounded-xl bg-zinc-900 border border-zinc-800 p-1">
+                      <button
+                        type="button"
+                        onClick={() => handleQuantityChange(item.id, currentGrams - 25)}
+                        className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
+                      >
+                        <Minus className="w-3.5 h-3.5" />
+                      </button>
+                      <input
+                        type="number"
+                        min="5"
+                        max="2000"
+                        step="5"
+                        value={currentGrams}
+                        onChange={(e) =>
+                          handleQuantityChange(item.id, Number(e.target.value))
+                        }
+                        className="w-16 text-center bg-transparent text-sm font-bold text-white outline-none"
+                      />
+                      <span className="text-xs text-zinc-500 pr-1.5 font-medium">
+                        {item.unitType || "g"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleQuantityChange(item.id, currentGrams + 25)}
+                        className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemove(item.id)}
+                      className="p-2 rounded-xl bg-zinc-900/80 hover:bg-red-950/70 border border-zinc-800 hover:border-red-800 text-zinc-500 hover:text-red-400 transition"
+                      title="Remove Item"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+    </main>
   );
 }

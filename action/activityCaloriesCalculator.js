@@ -1,3 +1,5 @@
+import { getMETForActivity } from "@/lib/activitiesCatalog";
+
 const METValues = {
   // 1. Gym & Conditioning
   "Weight Lifting - Light or moderate effort (General)": 3.5,
@@ -80,7 +82,9 @@ export const calculateActivityCalories = async (id, weight) => {
   const data = await activity.json();
   const activityData = data?.activities || [];
   const caloriesBurned = activityData.map((activity) => {
-    const metValue = METValues[activity.activityName] || 1; // Default to 1 if activity type is not found
+    const metValue =
+      METValues[activity.activityName] ||
+      getMETForActivity(activity.activityName); // Smart fallback if not exact match
     const calories = (metValue * activity.duration * weight) / 60; // Calories burned formula
     return {
       id: activity._id,

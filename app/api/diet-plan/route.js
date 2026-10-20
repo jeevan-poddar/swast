@@ -1,65 +1,75 @@
-import mongoose from "mongoose";
 import { NextResponse } from "next/server";
-import DietPlan from "@/models/DietPlan";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
-async function connectToDatabase() {
-  if (mongoose.connection.readyState === 0) {
-    try {
-      await mongoose.connect(process.env.MONGODB_URI);
-      console.log("Connected to MongoDB in diet-plan api");
-    } catch (error) {
-      console.error("Error connecting to MongoDB:", error.message);
-    }
-  }
-}
-
+// ─── GET: fetch latest diet plan for a user ───────────────────────────────────
 export async function GET(req) {
   try {
-    await connectToDatabase();
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get("userId");
 
-    if (!userId) {
+    if (!userId || userId === "undefined") {
       return NextResponse.json({ error: "Missing userId" }, { status: 400 });
     }
 
-    const dietPlan = await DietPlan.findOne({ userId }).sort({ createdAt: -1 });
+    const { data: plan, error } = await supabaseAdmin
+      .from("diet_plans")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (!dietPlan) {
+    if (error) {
+      console.error("[diet-plan GET] Supabase error:", error.message);
+      return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    }
+
+    if (!plan) {
       return NextResponse.json({ error: "No diet plan found" }, { status: 404 });
     }
 
-    return NextResponse.json(dietPlan, { status: 200 });
+    return NextResponse.json({
+      id:         plan.id,
+      userId:     plan.user_id,
+      weeklyPlan: plan.weekly_plan,
+      budget:     plan.budget,
+      createdAt:  plan.created_at,
+      updatedAt:  plan.updated_at,
+    }, { status: 200 });
   } catch (error) {
-    console.error("Error in GET diet-plan:", error.message);
+    console.error("[diet-plan GET] Error:", error.message);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
 
+// ─── POST: create or update diet plan ────────────────────────────────────────
 export async function POST(req) {
   try {
-    await connectToDatabase();
     const body = await req.json();
     const { userId, weeklyPlan, budget } = body;
 
     if (!userId || !weeklyPlan) {
-      return NextResponse.json({ error: "Missing required fields: userId or weeklyPlan" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields: userId or weeklyPlan" },
+        { status: 400 }
+      );
     }
 
-    let dietPlan = await DietPlan.findOne({ userId });
+    const { data: plan, error } = await supabaseAdmin
+      .from("diet_plans")
+      .upsert(
+        { user_id: userId, weekly_plan: weeklyPlan, budget: budget ?? null },
+        { onConflict: "user_id" }
+      )
+      .select()
+      .single();
 
-    if (dietPlan) {
-      dietPlan.weeklyPlan = weeklyPlan;
-      if (budget !== undefined) dietPlan.budget = budget;
-      dietPlan.updatedAt = Date.now();
-      await dietPlan.save();
-    } else {
-      dietPlan = await DietPlan.create({ userId, weeklyPlan, budget });
+    if (error) {
+      console.error("[diet-plan POST] Supabase error:", error.message);
+      return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
     }
 
-    return NextResponse.json(dietPlan, { status: 200 });
+    return NextResponse.json(plan, { status: 200 });
   } catch (error) {
-    console.error("Error in POST diet-plan:", error.message);
+    console.error("[diet-plan POST] Error:", error.message);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

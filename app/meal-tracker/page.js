@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { calculateNutrients } from "@/action/nutirentCalculation";
@@ -12,15 +12,56 @@ import {
   Loader2,
   Search,
   Trash2,
-  PieChart,
   CheckCircle2,
   XCircle,
   Clock,
+  Plus,
+  Flame,
   Activity,
-  Plus
+  Calendar,
+  Utensils,
+  Sparkles,
+  ArrowLeft,
+  AlertCircle,
 } from "lucide-react";
 
 const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+const NUTRIENT_FIELDS = [
+  "kcal",
+  "protein",
+  "carbs",
+  "fats",
+  "fiber_g",
+  "water_L",
+  "sodium_mg",
+  "potassium_mg",
+  "magnesium_mg",
+  "iron_mg",
+  "calcium_mg",
+  "vitamin_D_mcg",
+  "vitamin_B12_mcg",
+  "omega_3_mg",
+  "antioxidant_VitE_mg",
+];
+
+const PROGRESS_METRICS = [
+  { key: "kcal", label: "Calories", unit: "kcal", target: (t) => t.calories },
+  { key: "protein", label: "Protein", unit: "g", target: (t) => t.macros?.protein_g },
+  { key: "carbs", label: "Carbs", unit: "g", target: (t) => t.macros?.carbs_g },
+  { key: "fats", label: "Fats", unit: "g", target: (t) => t.macros?.fats_g },
+  { key: "fiber_g", label: "Fiber", unit: "g", target: (t) => t.micros?.fiber_g },
+  { key: "water_L", label: "Water", unit: "L", target: (t) => t.micros?.water_L },
+  { key: "sodium_mg", label: "Sodium", unit: "mg", target: (t) => t.micros?.sodium_mg },
+  { key: "potassium_mg", label: "Potassium", unit: "mg", target: (t) => t.micros?.potassium_mg },
+  { key: "magnesium_mg", label: "Magnesium", unit: "mg", target: (t) => t.micros?.magnesium_mg },
+  { key: "iron_mg", label: "Iron", unit: "mg", target: (t) => t.micros?.iron_mg },
+  { key: "calcium_mg", label: "Calcium", unit: "mg", target: (t) => t.micros?.calcium_mg },
+  { key: "vitamin_D_mcg", label: "Vitamin D", unit: "mcg", target: (t) => t.micros?.vitamin_D_mcg },
+  { key: "vitamin_B12_mcg", label: "Vitamin B12", unit: "mcg", target: (t) => t.micros?.vitamin_B12_mcg },
+  { key: "omega_3_mg", label: "Omega-3", unit: "mg", target: (t) => t.micros?.omega_3_mg },
+  { key: "antioxidant_VitE_mg", label: "Vitamin E", unit: "mg", target: (t) => t.micros?.antioxidant_VitE_mg },
+];
 
 export default function MealTrackerPage() {
   const { data: session, status } = useSession();
@@ -28,10 +69,11 @@ export default function MealTrackerPage() {
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [monthData, setMonthData] = useState([]);
-  const [selectedDay, setSelectedDay] = useState(null); // YYYY-MM-DD string
+  const [selectedDay, setSelectedDay] = useState(null); // YYYY-MM-DD
   const [dayLog, setDayLog] = useState(null);
   const [weeklyTargets, setWeeklyTargets] = useState(null);
   const [isDayPanelOpen, setIsDayPanelOpen] = useState(false);
+  const [toast, setToast] = useState(null);
 
   // Report Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -46,7 +88,7 @@ export default function MealTrackerPage() {
   const [isAddingMeal, setIsAddingMeal] = useState(false);
 
   useEffect(() => {
-    if (status === "unauthenticated") router.push("/");
+    if (status === "unauthenticated") router.push("/signin");
   }, [status, router]);
 
   useEffect(() => {
@@ -56,10 +98,17 @@ export default function MealTrackerPage() {
     }
   }, [currentDate, session]);
 
+  // Set default selected day to today
+  useEffect(() => {
+    if (!selectedDay) {
+      const today = new Date().toISOString().split("T")[0];
+      setSelectedDay(today);
+    }
+  }, []);
+
   useEffect(() => {
     if (selectedDay && session?.user?._id) {
       loadDayLog(selectedDay);
-      setIsDayPanelOpen(true);
     }
   }, [selectedDay, session]);
 
@@ -69,6 +118,7 @@ export default function MealTrackerPage() {
       setWeeklyTargets(data);
     } catch (e) {
       console.error(e);
+      setToast({ type: "error", msg: "Could not update this meal." });
     }
   };
 
@@ -76,23 +126,29 @@ export default function MealTrackerPage() {
     try {
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth() + 1;
-      const res = await fetch(`/api/meal-log/month?userId=${session.user._id}&year=${year}&month=${month}`);
+      const res = await fetch(
+        `/api/meal-log/month?userId=${session.user._id}&year=${year}&month=${month}`
+      );
       if (res.ok) setMonthData(await res.json());
     } catch (e) {
       console.error(e);
+      setToast({ type: "error", msg: "Could not remove this meal." });
     }
   };
 
   const loadDayLog = async (dateStr) => {
     try {
-      const res = await fetch(`/api/meal-log?userId=${session.user._id}&date=${dateStr}`);
+      const res = await fetch(
+        `/api/meal-log?userId=${session.user._id}&date=${dateStr}`
+      );
       if (res.ok) setDayLog(await res.json());
     } catch (e) {
       console.error(e);
+      setToast({ type: "error", msg: "Could not add this meal." });
     }
   };
 
-  // --- Calendar Logic ---
+  // Calendar Math
   const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
   const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
 
@@ -100,50 +156,73 @@ export default function MealTrackerPage() {
   const firstDay = getFirstDayOfMonth(currentDate.getFullYear(), currentDate.getMonth());
   const calendarCells = Array.from({ length: 42 });
 
-  const handlePrevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
-  const handleNextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
-
-  const getLogForDate = (dateStr) => monthData.find(log => log.date === dateStr);
-
-  const StatusDot = ({ status }) => {
-    if (status === 'eaten') return <div className="w-2 h-2 rounded-full bg-green-500" />;
-    if (status === 'not_eaten') return <div className="w-2 h-2 rounded-full bg-red-500" />;
-    return <div className="w-2 h-2 rounded-full bg-gray-300" />;
+  const handlePrevMonth = () => {
+    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+  };
+  const handleNextMonth = () => {
+    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
   };
 
-  // --- Day Panel Logic ---
+  const getLogForDate = (dateStr) => {
+    return monthData.find((d) => d.date === dateStr);
+  };
+
+  const StatusDot = ({ status }) => {
+    if (status === "eaten") return <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />;
+    if (status === "not_eaten") return <div className="w-2 h-2 rounded-full bg-red-500 shadow-sm shadow-red-500/50" />;
+    return <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />;
+  };
+
   const currentDayOfWeekName = selectedDay ? DAYS_OF_WEEK[new Date(selectedDay).getDay()] : null;
   const currentTarget = weeklyTargets && currentDayOfWeekName ? weeklyTargets[currentDayOfWeekName] : null;
+
+  const getErrorMessage = async (response, fallback) => {
+    const data = await response.json().catch(() => null);
+    return data?.error || fallback;
+  };
 
   const updateMealStatus = async (mealType, status) => {
     try {
       const payload = { userId: session.user._id, date: selectedDay, mealType, status };
-      const res = await fetch('/api/meal-log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const res = await fetch("/api/meal-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         await loadDayLog(selectedDay);
         await loadMonthData();
+        setToast({ type: "success", msg: `Marked ${mealType} as ${status === "eaten" ? "completed" : "skipped"}.` });
+      } else {
+        setToast({ type: "error", msg: await getErrorMessage(res, "Could not update this meal.") });
       }
     } catch (e) {
       console.error(e);
+      setToast({ type: "error", msg: "Could not update this meal." });
+    } finally {
+      setTimeout(() => setToast(null), 3000);
     }
   };
 
   const deleteMeal = async (mealType) => {
     if (!confirm(`Are you sure you want to remove ${mealType}?`)) return;
     try {
-      const res = await fetch(`/api/meal-log?userId=${session.user._id}&date=${selectedDay}&mealType=${mealType}`, {
-        method: 'DELETE'
-      });
+      const res = await fetch(
+        `/api/meal-log?userId=${session.user._id}&date=${selectedDay}&mealType=${mealType}`,
+        { method: "DELETE" }
+      );
       if (res.ok) {
         await loadDayLog(selectedDay);
         await loadMonthData();
+        setToast({ type: "success", msg: `Removed ${mealType}` });
+      } else {
+        setToast({ type: "error", msg: await getErrorMessage(res, "Could not remove this meal.") });
       }
     } catch (e) {
       console.error(e);
+      setToast({ type: "error", msg: "Could not remove this meal." });
+    } finally {
+      setTimeout(() => setToast(null), 3000);
     }
   };
 
@@ -151,20 +230,23 @@ export default function MealTrackerPage() {
     if (!newMealName.trim()) return;
     const mealType = newMealName.trim().toLowerCase();
     try {
-      const payload = { userId: session.user._id, date: selectedDay, mealType, status: 'not_reported' };
-      const res = await fetch('/api/meal-log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const payload = { userId: session.user._id, date: selectedDay, mealType, status: "not_reported" };
+      const res = await fetch("/api/meal-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         setNewMealName("");
         setIsAddingMeal(false);
         await loadDayLog(selectedDay);
         await loadMonthData();
+      } else {
+        setToast({ type: "error", msg: await getErrorMessage(res, "Could not add this meal.") });
       }
     } catch (e) {
       console.error(e);
+      setToast({ type: "error", msg: "Could not add this meal." });
     }
   };
 
@@ -176,15 +258,14 @@ export default function MealTrackerPage() {
     setIsModalOpen(true);
   };
 
-  // --- Modal Logic ---
   const handleSimulateUpload = () => {
-    if (!isScanning) fileInputRef.current?.click();
+    fileInputRef.current?.click();
   };
 
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
+
     setPhotoSelected(true);
     setIsScanning(true);
 
@@ -193,21 +274,31 @@ export default function MealTrackerPage() {
       formData.append("file", file);
 
       const res = await fetch("/api/detect-food", { method: "POST", body: formData });
-      if (res.ok) {
-        const detectedNames = await res.json();
-        const fullItems = [];
-        for (const name of detectedNames) {
-          const calcRes = await fetch("/api/calculate-food", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ foodName: name, quantity: 100 })
-          });
-          if (calcRes.ok) fullItems.push(await calcRes.json());
-        }
-        setScannedItems(prev => [...prev, ...fullItems]);
+      if (!res.ok) {
+        throw new Error(await getErrorMessage(res, "Could not detect food in this image."));
       }
+      const detectedFoods = await res.json();
+      if (!detectedFoods.length) throw new Error("No food was detected in this image.");
+      const fullItems = [];
+      for (const food of detectedFoods) {
+        const calcRes = await fetch("/api/calculate-food", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            foodName: food.name,
+            quantity: food.quantity,
+            unit: food.unit,
+          }),
+        });
+        if (!calcRes.ok) {
+          throw new Error(await getErrorMessage(calcRes, `Could not calculate ${food.name}.`));
+        }
+        fullItems.push(await calcRes.json());
+      }
+      setScannedItems((prev) => [...prev, ...fullItems]);
     } catch (e) {
       console.error(e);
+      setToast({ type: "error", msg: e.message || "Could not scan this image." });
     } finally {
       setIsScanning(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -215,44 +306,47 @@ export default function MealTrackerPage() {
   };
 
   const handleManualSearch = async (e) => {
-    if (e.key === 'Enter' && searchQuery.trim() !== '') {
+    if (e.key === "Enter" && searchQuery.trim() !== "") {
       try {
         const res = await fetch("/api/calculate-food", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ foodName: searchQuery.trim(), quantity: 100 })
+          body: JSON.stringify({ foodName: searchQuery.trim(), quantity: 100 }),
         });
         if (res.ok) {
           const newItem = await res.json();
-          setScannedItems(prev => [...prev, newItem]);
+          setScannedItems((prev) => [...prev, newItem]);
           setSearchQuery("");
+        } else {
+          setToast({ type: "error", msg: await getErrorMessage(res, "Could not find that food.") });
         }
       } catch (error) {
         console.error(error);
+        setToast({ type: "error", msg: "Could not find that food." });
       }
     }
   };
 
   const updateScannedItemQty = (id, val) => {
-    setScannedItems(items => items.map(i => i.id === id ? { ...i, userInput: val } : i));
+    setScannedItems((items) =>
+      items.map((i) => (i.id === id ? { ...i, userInput: val } : i))
+    );
   };
+
   const removeScannedItem = (id) => {
-    setScannedItems(items => items.filter(i => i.id !== id));
+    setScannedItems((items) => items.filter((i) => i.id !== id));
   };
 
   const sumNutrients = (itemsToSum) => {
-    const sums = { kcal: 0, protein: 0, carbs: 0, fats: 0, fiber_g: 0, water_L: 0, sodium_mg: 0, potassium_mg: 0, magnesium_mg: 0, iron_mg: 0, calcium_mg: 0, vitamin_D_mcg: 0, vitamin_B12_mcg: 0, omega_3_mg: 0, antioxidant_VitE_mg: 0 };
-    itemsToSum.forEach(i => {
-      const ratio = (Number(i.userInput) || 0) / i.baseAmount;
-      Object.keys(sums).forEach(k => {
-        if (typeof i[k] === 'number' || (k === 'fats' && typeof i.fat === 'number')) {
-            const valKey = k === 'fats' ? 'fat' : k;
-            sums[k] += (i[valKey] || 0) * ratio;
-        }
+    const sums = Object.fromEntries(NUTRIENT_FIELDS.map((field) => [field, 0]));
+    itemsToSum.forEach((i) => {
+      const ratio = (Number(i.userInput) || 0) / (i.baseAmount || 100);
+      NUTRIENT_FIELDS.forEach((field) => {
+        const value = field === "fats" ? i.fat ?? i.fats : i[field];
+        sums[field] += (Number(value) || 0) * ratio;
       });
     });
-    // round all
-    Object.keys(sums).forEach(k => sums[k] = Math.round(sums[k] * 10) / 10);
+    Object.keys(sums).forEach((k) => (sums[k] = Math.round(sums[k] * 10) / 10));
     return sums;
   };
 
@@ -266,111 +360,188 @@ export default function MealTrackerPage() {
         mealType: activeMealType,
         status: "eaten",
         items: scannedItems,
-        totalNutrients
+        totalNutrients,
       };
-      const res = await fetch('/api/meal-log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const res = await fetch("/api/meal-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         setIsModalOpen(false);
         await loadDayLog(selectedDay);
         await loadMonthData();
+        setToast({ type: "success", msg: "Meal log saved successfully!" });
+      } else {
+        setToast({ type: "error", msg: await getErrorMessage(res, "Could not save this meal.") });
       }
     } catch (e) {
       console.error(e);
+      setToast({ type: "error", msg: "Error saving meal log." });
     } finally {
       setIsSaving(false);
+      setTimeout(() => setToast(null), 3000);
     }
   };
 
-  // Calculate day totals for progress bars
+  // Day totals progress calculation
   const dayTotals = useMemo(() => {
     if (!dayLog || !currentTarget) return null;
-    const sums = { kcal: 0, protein: 0, carbs: 0, fats: 0, fiber_g: 0, water_L: 0, sodium_mg: 0, potassium_mg: 0, magnesium_mg: 0, iron_mg: 0, calcium_mg: 0, vitamin_D_mcg: 0, vitamin_B12_mcg: 0, omega_3_mg: 0, antioxidant_VitE_mg: 0 };
-    const mealsList = dayLog.mealsList || ['breakfast', 'lunch', 'dinner'];
-    mealsList.forEach(m => {
-      if (dayLog[m]?.status === 'eaten' && dayLog[m]?.totalNutrients) {
-        Object.keys(sums).forEach(k => sums[k] += (dayLog[m].totalNutrients[k] || 0));
+    const sums = Object.fromEntries(NUTRIENT_FIELDS.map((field) => [field, 0]));
+    const mealsList = dayLog.mealsList || ["breakfast", "lunch", "dinner"];
+    mealsList.forEach((m) => {
+      const nutrients = dayLog[m]?.totalNutrients ?? dayLog[m]?.total_nutrients;
+      if (dayLog[m]?.status === "eaten" && nutrients) {
+        NUTRIENT_FIELDS.forEach((field) => {
+          const value = field === "fats" ? nutrients.fats ?? nutrients.fat : nutrients[field];
+          sums[field] += Number(value) || 0;
+        });
       }
     });
-
-    // Add currently scanned items if modal is open (acting as preview)
-    if (isModalOpen && scannedItems.length > 0) {
-      const currentModalSums = sumNutrients(scannedItems);
-      const existingMealSums = dayLog[activeMealType]?.totalNutrients || {};
-      
-      // If editing existing, subtract old, add new
-      Object.keys(sums).forEach(k => {
-         sums[k] -= (existingMealSums[k] || 0);
-         sums[k] += currentModalSums[k];
-      });
-    }
-    
-    return sums;
-  }, [dayLog, currentTarget, isModalOpen, scannedItems, activeMealType]);
-
-  const ProgressBar = ({ label, current, max, unit }) => {
-    const percentage = Math.min((current / max) * 100, 100) || 0;
-    return (
-      <div className="mb-3">
-        <div className="flex justify-between text-xs mb-1">
-          <span className="font-medium text-gray-700">{label}</span>
-          <span className="text-gray-500">{current.toFixed(1)} / {max} {unit}</span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-          <div 
-            className={`h-1.5 rounded-full ${percentage >= 100 ? 'bg-green-500' : 'bg-blue-600'}`} 
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-      </div>
+    return Object.fromEntries(
+      Object.entries(sums).map(([field, value]) => [field, Math.round(value * 10) / 10]),
     );
-  };
+  }, [dayLog, currentTarget]);
 
-  if (status === 'loading') return <div>Loading...</div>;
+  const progressMetrics = useMemo(() => {
+    if (!dayTotals || !currentTarget) return [];
+
+    return PROGRESS_METRICS.map((metric) => ({
+      ...metric,
+      value: dayTotals[metric.key] || 0,
+      targetValue: metric.target(currentTarget) || 0,
+    }));
+  }, [currentTarget, dayTotals]);
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
-      {/* LEFT: Calendar */}
-      <div className={`flex-1 p-4 md:p-8 ${isDayPanelOpen ? 'hidden md:block' : 'block'}`}>
-        <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          
-          <div className="px-6 py-4 border-b flex justify-between items-center bg-white">
-            <h2 className="text-xl font-bold text-gray-800">
-              {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+    <main className="min-h-screen max-w-7xl mx-auto p-4 sm:p-6 lg:p-10 flex flex-col gap-6 text-zinc-100">
+      {/* ── Toast ──────────────────────────────────────────────────────── */}
+      {toast && (
+        <div
+          className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-xl border ${
+            toast.type === "success"
+              ? "bg-emerald-950/90 border-emerald-600/50 text-emerald-200"
+              : "bg-red-950/90 border-red-600/50 text-red-200"
+          }`}
+        >
+          {toast.type === "success" ? (
+            <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+          ) : (
+            <AlertCircle className="w-5 h-5 text-red-400" />
+          )}
+          <span className="text-sm font-semibold">{toast.msg}</span>
+        </div>
+      )}
+
+      {/* ── Top Navigation Bar ─────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800/80">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => router.push("/")}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-zinc-900 border border-zinc-800 hover:border-red-600 text-zinc-300 transition"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span>Dashboard</span>
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs uppercase tracking-wider font-bold text-emerald-500">
+              Dietary Consistency Engine
+            </span>
+          </div>
+        </div>
+
+        <div className="text-xs text-zinc-400 flex items-center gap-2">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Eaten</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> Skipped</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-zinc-600" /> Pending</span>
+        </div>
+      </div>
+
+      <div>
+        <h1 className="text-3xl sm:text-4xl font-black text-white">Meal Log &amp; Adherence Calendar</h1>
+        <p className="mt-1 text-sm text-zinc-400 max-w-2xl">
+          Track meal completion against daily calorie targets. Select any date to inspect foods or report consumed meals.
+        </p>
+      </div>
+
+      {/* ── Main Two-Column Calendar & Day Detail Layout ───────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* LEFT: Calendar Grid (7 cols) */}
+        <div className="lg:col-span-7 rounded-3xl bg-zinc-950/70 border border-zinc-800/80 p-5 sm:p-6 backdrop-blur-xl shadow-2xl">
+          {/* Month Header */}
+          <div className="flex items-center justify-between mb-5 pb-4 border-b border-zinc-800/70">
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <Calendar className="w-5 h-5 text-red-500" />
+              <span>
+                {currentDate.toLocaleString("default", { month: "long", year: "numeric" })}
+              </span>
             </h2>
-            <div className="flex gap-2">
-              <button onClick={handlePrevMonth} className="p-2 hover:bg-gray-100 rounded-full"><ChevronLeft size={20}/></button>
-              <button onClick={handleNextMonth} className="p-2 hover:bg-gray-100 rounded-full"><ChevronRight size={20}/></button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={handlePrevMonth}
+                className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 transition border border-zinc-800"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleNextMonth}
+                className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 transition border border-zinc-800"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-7 gap-px bg-gray-200">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
-              <div key={d} className="bg-gray-50 p-2 text-center text-xs font-semibold text-gray-500">{d}</div>
+          {/* Weekday Labels */}
+          <div className="grid grid-cols-7 gap-1 text-center mb-2">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+              <div key={d} className="text-xs font-bold uppercase tracking-wider text-zinc-500 py-1">
+                {d}
+              </div>
             ))}
-            
+          </div>
+
+          {/* Month Days Grid */}
+          <div className="grid grid-cols-7 gap-1.5">
             {calendarCells.map((_, i) => {
               const dayNum = i - firstDay + 1;
               const isCurrentMonth = dayNum > 0 && dayNum <= daysInMonth;
-              
-              if (!isCurrentMonth) return <div key={i} className="bg-white min-h-[100px]" />;
 
-              const dateStr = `${currentDate.getFullYear()}-${(currentDate.getMonth()+1).toString().padStart(2,'0')}-${dayNum.toString().padStart(2,'0')}`;
+              if (!isCurrentMonth) {
+                return <div key={i} className="min-h-[70px] sm:min-h-[85px] rounded-2xl bg-zinc-950/30 border border-transparent opacity-20" />;
+              }
+
+              const dateStr = `${currentDate.getFullYear()}-${(currentDate.getMonth() + 1)
+                .toString()
+                .padStart(2, "0")}-${dayNum.toString().padStart(2, "0")}`;
               const log = getLogForDate(dateStr);
               const isSelected = selectedDay === dateStr;
 
               return (
-                <div 
-                  key={i} 
-                  onClick={() => setSelectedDay(dateStr)}
-                  className={`bg-white min-h-[100px] p-2 border-t flex flex-col cursor-pointer transition-colors ${isSelected ? 'ring-2 ring-inset ring-blue-500 bg-blue-50/30' : 'hover:bg-gray-50'}`}
+                <div
+                  key={i}
+                  onClick={() => {
+                    setSelectedDay(dateStr);
+                    setIsDayPanelOpen(true);
+                  }}
+                  className={`min-h-[70px] sm:min-h-[85px] p-2 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                    isSelected
+                      ? "bg-red-950/50 border-red-500 shadow-lg shadow-red-950/50"
+                      : "bg-zinc-900/50 border-zinc-800/60 hover:border-zinc-700 hover:bg-zinc-900"
+                  }`}
                 >
-                  <span className={`text-sm font-medium ${isSelected ? 'text-blue-700' : 'text-gray-700'}`}>{dayNum}</span>
-                  <div className="mt-auto flex justify-center gap-1 mb-1 flex-wrap px-1">
-                    {(log?.mealsList || ['breakfast', 'lunch', 'dinner']).map(m => (
+                  <span
+                    className={`text-xs sm:text-sm font-bold ${
+                      isSelected ? "text-red-400" : "text-zinc-300"
+                    }`}
+                  >
+                    {dayNum}
+                  </span>
+
+                  {/* Meal Status Dots */}
+                  <div className="flex items-center justify-center gap-1 flex-wrap mt-auto">
+                    {(log?.mealsList || ["breakfast", "lunch", "dinner"]).map((m) => (
                       <StatusDot key={m} status={log?.[m]?.status} />
                     ))}
                   </div>
@@ -379,244 +550,282 @@ export default function MealTrackerPage() {
             })}
           </div>
         </div>
-      </div>
 
-      {/* RIGHT: Day Panel */}
-      {isDayPanelOpen && (
-        <div className="w-full md:w-96 bg-white border-l shadow-2xl md:shadow-none min-h-screen fixed md:relative right-0 top-0 z-20 flex flex-col overflow-y-auto">
-          <div className="p-4 border-b flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur z-10">
+        {/* RIGHT: Selected Day Meal Protocol (5 cols) */}
+        <div className="lg:col-span-5 rounded-3xl bg-zinc-950/70 border border-zinc-800/80 p-5 sm:p-6 backdrop-blur-xl shadow-2xl flex flex-col gap-4">
+          <div className="pb-4 border-b border-zinc-800/70 flex items-center justify-between">
             <div>
-              <h3 className="font-bold text-lg">{new Date(selectedDay).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric'})}</h3>
-              <p className="text-xs text-gray-500">{currentTarget ? `${currentTarget.calories} kcal Target` : 'Loading target...'}</p>
+              <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                Daily Breakdown
+              </span>
+              <h3 className="text-xl font-black text-white">
+                {selectedDay
+                  ? new Date(selectedDay).toLocaleDateString(undefined, {
+                      weekday: "long",
+                      month: "short",
+                      day: "numeric",
+                    })
+                  : "Select a date"}
+              </h3>
             </div>
-            <button onClick={() => setIsDayPanelOpen(false)} className="p-2 md:hidden hover:bg-gray-100 rounded-full">
-              <X size={20} />
-            </button>
+            {currentTarget && (
+              <span className="text-xs font-bold text-red-400 px-3 py-1 rounded-full bg-red-950/60 border border-red-800/40">
+                {currentTarget.calories} kcal Goal
+              </span>
+            )}
           </div>
 
-          <div className="p-4 flex-1 space-y-4">
-            {(dayLog?.mealsList || ['breakfast', 'lunch', 'dinner']).map((meal) => {
-              const status = dayLog?.[meal]?.status || 'not_reported';
+          {/* Daily nutrient progress */}
+          {currentTarget && dayTotals && (
+            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/70 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-zinc-300">Nutrient progress</span>
+                <span className="text-[11px] text-zinc-500">Consumed / daily target</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+                {progressMetrics.map((metric) => (
+                  <div key={metric.key}>
+                    <div className="flex justify-between gap-2 text-[11px] font-bold text-zinc-300 mb-1">
+                      <span>{metric.label}</span>
+                      <span className="text-zinc-400 whitespace-nowrap">
+                        {metric.value} / {metric.targetValue} {metric.unit}
+                      </span>
+                    </div>
+                    <div className="w-full bg-zinc-950 h-1.5 rounded-full overflow-hidden border border-zinc-800">
+                      <div
+                        className="h-full bg-gradient-to-r from-red-600 to-orange-500 rounded-full transition-all"
+                        style={{
+                          width: `${metric.targetValue > 0 ? Math.min((metric.value / metric.targetValue) * 100, 100) : 0}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Meals List for Day */}
+          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+            {(dayLog?.mealsList || ["breakfast", "lunch", "dinner"]).map((meal) => {
+              const mealStatus = dayLog?.[meal]?.status || "not_reported";
+              const mealCalories = dayLog?.[meal]?.totalNutrients?.kcal || 0;
+
               return (
-                <div key={meal} className="border rounded-xl p-4 shadow-sm hover:shadow-md transition">
-                  <div className="flex justify-between items-center mb-3">
-                    <h4 className="font-bold capitalize flex items-center gap-2">
-                       {status === 'eaten' ? <CheckCircle2 size={16} className="text-green-500"/> : 
-                        status === 'not_eaten' ? <XCircle size={16} className="text-red-500"/> : 
-                        <Clock size={16} className="text-gray-400"/>}
-                       {meal}
-                    </h4>
-                    <div className="flex items-center gap-3">
-                      {status === 'eaten' && dayLog[meal]?.totalNutrients && (
-                        <span className="text-xs font-bold bg-green-100 text-green-800 px-2 py-1 rounded-full">
-                          {dayLog[meal].totalNutrients.kcal || 0} kcal
+                <div
+                  key={meal}
+                  className="p-4 rounded-2xl bg-zinc-900/50 border border-zinc-800/60 hover:border-zinc-700 transition flex flex-col gap-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {mealStatus === "eaten" ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                      ) : mealStatus === "not_eaten" ? (
+                        <XCircle className="w-5 h-5 text-red-400" />
+                      ) : (
+                        <Clock className="w-5 h-5 text-zinc-500" />
+                      )}
+                      <h4 className="font-bold text-base text-white capitalize">{meal}</h4>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {mealStatus === "eaten" && (
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">
+                          {mealCalories} kcal
                         </span>
                       )}
-                      <button onClick={() => deleteMeal(meal)} className="text-gray-400 hover:text-red-500 transition-colors">
-                        <Trash2 size={16} />
+                      <button
+                        onClick={() => deleteMeal(meal)}
+                        className="p-1 rounded-lg text-zinc-500 hover:text-red-400 transition"
+                        title="Delete meal slot"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
 
-                  <div className="flex gap-2 mt-4">
-                    {status !== 'eaten' && (
-                      <button 
-                        onClick={() => openReportModal(meal)}
-                        className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-medium transition"
+                  {/* Actions for Meal */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/40">
+                    <button
+                      onClick={() => openReportModal(meal)}
+                      className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-bold text-xs shadow-md shadow-red-950 transition text-center"
+                    >
+                      {mealStatus === "eaten" ? "Edit Logged Food" : "Report Meal"}
+                    </button>
+                    {mealStatus !== "not_eaten" && (
+                      <button
+                        onClick={() => updateMealStatus(meal, "not_eaten")}
+                        className="py-2 px-3 rounded-xl bg-zinc-900 hover:bg-red-950/60 text-zinc-400 hover:text-red-400 border border-zinc-800 font-semibold text-xs transition"
                       >
-                        Report Meal
+                        Skip
                       </button>
-                    )}
-                    {status === 'eaten' && (
-                      <button 
-                        onClick={() => openReportModal(meal)}
-                        className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg text-sm font-medium transition"
-                      >
-                        Edit Log
-                      </button>
-                    )}
-                    {status !== 'not_eaten' && (
-                       <button 
-                         onClick={() => updateMealStatus(meal, 'not_eaten')}
-                         className="px-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-sm font-medium transition"
-                       >
-                         Skip
-                       </button>
                     )}
                   </div>
                 </div>
               );
             })}
+          </div>
 
-            {/* Add Meal Button */}
-            <div className="mt-4">
-              {isAddingMeal ? (
-                <div className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg border shadow-inner">
-                  <input 
-                    type="text" 
-                    value={newMealName} 
-                    onChange={e => setNewMealName(e.target.value)} 
-                    placeholder="Meal name (e.g., Snack)" 
-                    className="flex-1 bg-white border rounded px-3 py-1.5 text-sm outline-none focus:ring-2 ring-blue-500"
-                    autoFocus
-                    onKeyDown={e => e.key === 'Enter' && addNewMeal()}
-                  />
-                  <button onClick={addNewMeal} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-blue-700 transition-colors">Add</button>
-                  <button onClick={() => setIsAddingMeal(false)} className="text-gray-500 hover:text-gray-700 p-1"><X size={16} /></button>
-                </div>
-              ) : (
-                <button 
-                  onClick={() => setIsAddingMeal(true)} 
-                  className="w-full py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 font-medium hover:bg-gray-50 hover:border-gray-400 hover:text-gray-700 transition flex items-center justify-center gap-2 text-sm"
+          {/* Add Custom Meal Slot Input */}
+          <div className="pt-2">
+            {isAddingMeal ? (
+              <div className="flex items-center gap-2 p-2 rounded-2xl bg-zinc-900 border border-zinc-800">
+                <input
+                  type="text"
+                  value={newMealName}
+                  onChange={(e) => setNewMealName(e.target.value)}
+                  placeholder="e.g. Afternoon Snack, Pre-workout"
+                  className="flex-1 bg-transparent px-3 py-1.5 text-xs text-white outline-none"
+                  autoFocus
+                  onKeyDown={(e) => e.key === "Enter" && addNewMeal()}
+                />
+                <button
+                  onClick={addNewMeal}
+                  className="px-3 py-1.5 rounded-xl bg-red-600 text-white text-xs font-bold"
                 >
-                  <Plus size={16} /> Add Custom Meal
+                  Add
                 </button>
-              )}
-            </div>
-
-            {/* Quick nutrient summary for the day */}
-            {currentTarget && dayTotals && (
-              <div className="mt-8 bg-gray-50 rounded-xl p-4 border border-gray-200">
-                <h4 className="font-bold text-sm mb-4 uppercase text-gray-500 tracking-wider">Day Progress</h4>
-                <ProgressBar label="Calories" current={dayTotals.kcal} max={currentTarget.calories} unit="kcal" />
-                <ProgressBar label="Protein" current={dayTotals.protein} max={currentTarget.macros.protein_g} unit="g" />
-                <ProgressBar label="Carbs" current={dayTotals.carbs} max={currentTarget.macros.carbs_g} unit="g" />
+                <button
+                  onClick={() => setIsAddingMeal(false)}
+                  className="p-1.5 text-zinc-500 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
+            ) : (
+              <button
+                onClick={() => setIsAddingMeal(true)}
+                className="w-full py-2.5 rounded-2xl border border-dashed border-zinc-800 hover:border-zinc-700 text-xs font-bold text-zinc-400 hover:text-white transition flex items-center justify-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Custom Meal Slot</span>
+              </button>
             )}
           </div>
         </div>
-      )}
+      </div>
 
-      {/* MODAL: Report Meal */}
+      {/* ── MODAL: Report Food for Meal ────────────────────────────────── */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col md:flex-row shadow-2xl">
-            
-            {/* Modal Left: Upload & Items */}
-            <div className="flex-1 flex flex-col h-full border-r border-gray-100">
-              <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-                <h3 className="font-bold text-lg capitalize">Report {activeMealType}</h3>
-                <button onClick={() => setIsModalOpen(false)} className="md:hidden"><X size={20}/></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-3xl bg-zinc-950 border border-zinc-800 p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
+              <div className="flex items-center gap-2">
+                <Utensils className="w-5 h-5 text-red-500" />
+                <h3 className="text-xl font-bold text-white capitalize">
+                  Log Foods for {activeMealType}
+                </h3>
               </div>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="p-1.5 rounded-full bg-zinc-900 text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-              <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                
-                {/* Upload Zone */}
-                <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileChange} />
-                {!photoSelected ? (
-                  <div onClick={handleSimulateUpload} className="border-2 border-dashed border-blue-200 bg-blue-50/50 rounded-2xl p-6 flex flex-col items-center justify-center cursor-pointer hover:bg-blue-50">
-                    <Camera size={32} className="text-blue-500 mb-2"/>
-                    <p className="font-semibold text-blue-900 text-sm">Tap to scan meal</p>
+            <div className="space-y-4 overflow-y-auto max-h-[60vh] pr-1">
+              {/* Scan photo button */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+              <button
+                type="button"
+                onClick={handleSimulateUpload}
+                disabled={isScanning}
+                className="w-full py-4 rounded-2xl border-2 border-dashed border-zinc-800 hover:border-red-600/70 bg-zinc-900/40 text-center flex flex-col items-center justify-center transition"
+              >
+                {isScanning ? (
+                  <div className="flex items-center gap-2 text-red-400 font-bold text-xs">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Scanning meal photo...</span>
                   </div>
                 ) : (
-                  <div className="relative rounded-2xl overflow-hidden h-32 bg-gray-900 flex items-center justify-center">
-                    {isScanning ? (
-                       <div className="flex flex-col items-center">
-                         <Loader2 className="animate-spin text-white w-6 h-6 mb-2" />
-                         <span className="text-white text-sm font-medium">Analyzing...</span>
-                       </div>
-                    ) : (
-                      <div className="flex flex-col items-center">
-                         <CheckCircle2 className="text-green-400 w-8 h-8 mb-2" />
-                         <button onClick={() => {setPhotoSelected(false); setIsScanning(false)}} className="text-xs text-white bg-white/20 px-3 py-1 rounded-full">Rescan</button>
-                      </div>
-                    )}
+                  <div className="flex items-center gap-2 text-zinc-300 font-bold text-xs">
+                    <Camera className="w-4 h-4 text-red-500" />
+                    <span>Snap Photo / Upload Food Picture</span>
                   </div>
                 )}
+              </button>
 
-                {/* Items List */}
-                <div className="space-y-3">
-                  {scannedItems.map(item => (
-                    <div key={item.id} className="border rounded-xl p-3 flex justify-between items-center bg-white shadow-sm">
-                      <div className="flex-1 pr-4">
-                        <p className="font-semibold text-sm">{item.name}</p>
-                        <p className="text-xs text-gray-500">{item.kcal} kcal per {item.baseUnitLabel}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input 
-                           type="number" 
-                           value={item.userInput} 
-                           onChange={(e) => updateScannedItemQty(item.id, e.target.value)}
-                           className="w-16 border rounded p-1 text-sm text-center focus:ring-2 ring-blue-500 outline-none"
-                        />
-                        <span className="text-xs text-gray-500 w-8">{item.unitType}</span>
-                        <button onClick={() => removeScannedItem(item.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 size={16}/></button>
+              {/* Manual search bar */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={handleManualSearch}
+                  placeholder="Or type food & hit Enter (e.g. 100g Chicken, Brown Rice)..."
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white outline-none focus:border-red-500"
+                />
+              </div>
+
+              {/* Scanned Items List */}
+              <div className="space-y-2">
+                {scannedItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800 flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <div className="font-bold text-sm text-white">{item.name}</div>
+                      <div className="text-[11px] text-zinc-400">
+                        {item.kcal} kcal per {item.baseUnitLabel || "100g"}
                       </div>
                     </div>
-                  ))}
-                  
-                  {scannedItems.length === 0 && !isScanning && photoSelected && (
-                    <p className="text-center text-sm text-gray-500 py-4">No items detected.</p>
-                  )}
-                </div>
 
-                {/* Manual Add */}
-                <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input 
-                    type="text" 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={handleManualSearch}
-                    placeholder="Search manual item (press Enter)"
-                    className="w-full bg-gray-50 border rounded-lg py-2 pl-9 pr-3 text-sm focus:ring-2 ring-blue-500 outline-none"
-                  />
-                </div>
-
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={item.userInput || 100}
+                        onChange={(e) => updateScannedItemQty(item.id, e.target.value)}
+                        className="w-16 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-center text-xs text-white"
+                      />
+                      <span className="text-xs text-zinc-500 w-6">{item.unitType || "g"}</span>
+                      <button
+                        onClick={() => removeScannedItem(item.id)}
+                        className="p-1 text-zinc-500 hover:text-red-400"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {/* Modal Right: Live Nutrients */}
-            <div className="w-full md:w-80 bg-gray-50 flex flex-col h-full border-t md:border-t-0">
-               <div className="p-4 border-b flex justify-between items-center bg-white">
-                  <h3 className="font-bold text-sm tracking-widest uppercase text-gray-500 flex items-center gap-2">
-                    <Activity size={16}/> Impact Analysis
-                  </h3>
-                  <button onClick={() => setIsModalOpen(false)} className="hidden md:block text-gray-400 hover:text-gray-800"><X size={20}/></button>
-               </div>
-               
-               <div className="flex-1 overflow-y-auto p-4 space-y-6">
-                 {currentTarget && dayTotals ? (
-                   <>
-                     {/* MACROS */}
-                     <div>
-                       <h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Macros (Day Total)</h4>
-                       <ProgressBar label="Energy" current={dayTotals.kcal} max={currentTarget.calories} unit="kcal" />
-                       <ProgressBar label="Protein" current={dayTotals.protein} max={currentTarget.macros.protein_g} unit="g" />
-                       <ProgressBar label="Carbs" current={dayTotals.carbs} max={currentTarget.macros.carbs_g} unit="g" />
-                       <ProgressBar label="Fats" current={dayTotals.fats} max={currentTarget.macros.fats_g} unit="g" />
-                     </div>
-
-                     {/* MICROS */}
-                     <div>
-                       <h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Key Micros (Day Total)</h4>
-                       <ProgressBar label="Fiber" current={dayTotals.fiber_g} max={currentTarget.micros.fiber_g} unit="g" />
-                       <ProgressBar label="Water" current={dayTotals.water_L} max={currentTarget.micros.water_L} unit="L" />
-                       <ProgressBar label="Iron" current={dayTotals.iron_mg} max={currentTarget.micros.iron_mg} unit="mg" />
-                       <ProgressBar label="Calcium" current={dayTotals.calcium_mg} max={currentTarget.micros.calcium_mg} unit="mg" />
-                       <ProgressBar label="Vit B12" current={dayTotals.vitamin_B12_mcg} max={currentTarget.micros.vitamin_B12_mcg} unit="mcg" />
-                     </div>
-                   </>
-                 ) : (
-                   <div className="flex items-center justify-center h-full text-gray-400 text-sm">Loading targets...</div>
-                 )}
-               </div>
-
-               <div className="p-4 bg-white border-t mt-auto">
-                 <button 
+            {/* Modal Bottom Save Bar */}
+            <div className="pt-3 border-t border-zinc-800/80 flex items-center justify-between">
+              <div className="text-xs text-zinc-400">
+                Total: <strong className="text-white">{sumNutrients(scannedItems).kcal} kcal</strong>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
                   onClick={saveMealLog}
                   disabled={isSaving || scannedItems.length === 0}
-                  className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition shadow-md shadow-blue-500/20 flex justify-center items-center"
-                 >
-                   {isSaving ? <Loader2 size={20} className="animate-spin" /> : "Confirm & Log Meal"}
-                 </button>
-               </div>
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-red-700 text-white font-bold text-xs shadow-lg shadow-red-950 disabled:opacity-50 transition flex items-center gap-1.5"
+                >
+                  {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                  <span>Save to Log</span>
+                </button>
+              </div>
             </div>
-
           </div>
         </div>
       )}
-
-    </div>
+    </main>
   );
 }

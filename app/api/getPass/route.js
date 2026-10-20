@@ -1,26 +1,16 @@
-import mongoose from "mongoose";
-import User from "@/app/model/userSchema";
 import { NextResponse } from "next/server";
 
-try {
-  await mongoose.connect(process.env.MONGODB_URI);
-  console.log("Connected to MongoDB");
-} catch (error) {
-  console.error("Error connecting to MongoDB:", error.message);
-}
-
-export async function POST(req) {
-  try {
-    
-    const { email } = await req.json();
-    
-    const user = await User.findOne({ email: email });
-    return NextResponse.json({ password: user.password }, { status: 200 });
-  } catch (error) {
-    console.error("Error fetching password:", error.message);
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 },
-    );
-  }
+/**
+ * This route previously fetched plain-text passwords from MongoDB.
+ * With Supabase Auth, passwords are NEVER stored in plain text — this
+ * endpoint is now deprecated and disabled for security.
+ *
+ * The NextAuth credentials provider now validates passwords directly
+ * via supabaseAdmin.auth.signInWithPassword() in the [...nextauth] route.
+ */
+export async function POST() {
+  return NextResponse.json(
+    { error: "This endpoint is disabled. Passwords are managed by Supabase Auth." },
+    { status: 410 } // 410 Gone
+  );
 }

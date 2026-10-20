@@ -1,6 +1,84 @@
 import NextAuth from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GoogleProvider from "next-auth/providers/google";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { supabase } from "@/lib/supabase/client";
+
+/**
+ * Resolves or creates a Supabase auth user UUID for the given email/name.
+ * Guarantees a matching row exists in both auth.users and public.users.
+ */
+async function resolveUserUuid(email, name) {
+  if (!email) return null;
+
+  try {
+    // 1. Check if user already exists in public.users
+    const { data: publicUser } = await supabaseAdmin
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (publicUser?.id) {
+      return publicUser.id;
+    }
+
+    // 2. Look in Supabase auth.users
+    const { data: listData } = await supabaseAdmin.auth.admin.listUsers();
+    const matchedAuthUser = listData?.users?.find(
+      (u) => u.email?.toLowerCase() === email.toLowerCase()
+    );
+
+    if (matchedAuthUser?.id) {
+      // Sync into public.users
+      await supabaseAdmin.from("users").upsert({
+        id: matchedAuthUser.id,
+        email: matchedAuthUser.email,
+        name: name || matchedAuthUser.user_metadata?.full_name || email.split("@")[0],
+      });
+      return matchedAuthUser.id;
+    }
+
+    // 3. User does not exist in auth.users — create them
+    const { data: created, error: createErr } =
+      await supabaseAdmin.auth.admin.createUser({
+        email: email,
+        email_confirm: true,
+        user_metadata: { full_name: name || email.split("@")[0] },
+      });
+
+    if (created?.user?.id) {
+      await supabaseAdmin.from("users").upsert({
+        id: created.user.id,
+        email: created.user.email,
+        name: name || email.split("@")[0],
+      });
+      return created.user.id;
+    }
+
+    if (createErr) {
+      console.error("[resolveUserUuid] createUser error:", createErr.message);
+      // If error indicates user already exists, re-check listUsers
+      const { data: retryList } = await supabaseAdmin.auth.admin.listUsers();
+      const retryUser = retryList?.users?.find(
+        (u) => u.email?.toLowerCase() === email.toLowerCase()
+      );
+      if (retryUser?.id) {
+        await supabaseAdmin.from("users").upsert({
+          id: retryUser.id,
+          email: retryUser.email,
+          name: name || email.split("@")[0],
+        });
+        return retryUser.id;
+      }
+    }
+  } catch (err) {
+    console.error("[resolveUserUuid] Error resolving UUID:", err.message);
+  }
+
+  return null;
+}
+
 export const authOptions = {
   providers: [
     CredentialsProvider({
@@ -8,26 +86,43 @@ export const authOptions = {
       credentials: {},
       async authorize(credentials) {
         try {
-          // console.log("Authorizing user with credentials:", credentials);
-          const a = await fetch(`http://localhost:3000/api/loginUser`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify(credentials),
-          });
-          const res = await a.json();
-          // console.log(res);
-          if (res.success && res.user) {
-            return {
-              _id: res.user._id,
-              email: res.user.email,
-              name: res.user.name,
-            };
+          if (!credentials?.email || !credentials?.password) {
+            return null;
           }
-          return null;
-        } catch (error) {
-          console.log("Error in authorize function:", error.message);
+
+          // IMPORTANT: Use anon client — service-role bypasses password validation
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: credentials.email,
+            password: credentials.password,
+          });
+
+          if (error || !data.user) {
+            console.log("[NextAuth] Credentials invalid:", error?.message);
+            return null;
+          }
+
+          // Ensure public.users has this user and fetch name
+          const { data: userRow } = await supabaseAdmin
+            .from("users")
+            .select("name")
+            .eq("id", data.user.id)
+            .maybeSingle();
+
+          if (!userRow) {
+            await supabaseAdmin.from("users").upsert({
+              id: data.user.id,
+              email: data.user.email,
+              name: data.user.user_metadata?.full_name || data.user.email.split("@")[0],
+            });
+          }
+
+          return {
+            _id: data.user.id,
+            email: data.user.email,
+            name: userRow?.name || data.user.user_metadata?.full_name || data.user.email.split("@")[0],
+          };
+        } catch (err) {
+          console.error("[NextAuth] authorize error:", err.message);
           return null;
         }
       },
@@ -37,76 +132,72 @@ export const authOptions = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
     }),
   ],
-  session: {
-    strategy: "jwt", // Use JWT for session management
-  },
-  pages: {
-    signIn: "/signin", // Your custom login page
-  },
-};
-
-const handler = NextAuth({
-  ...authOptions,
+  session: { strategy: "jwt" },
+  pages: { signIn: "/signin" },
   callbacks: {
     async jwt({ token, user, account }) {
       if (user) {
-        token._id = user._id ;
+        token._id = user._id;
         token.email = user.email;
         token.name = user.name;
-        token.provider = account?.provider || token.provider || "credentials";
+        token.provider = account?.provider || "credentials";
+      }
+
+      // Recover _id if missing or undefined
+      if (!token._id || token._id === "undefined") {
+        if (token.email) {
+          const uuid = await resolveUserUuid(token.email, token.name);
+          if (uuid) {
+            token._id = uuid;
+            console.log("[NextAuth] jwt: recovered UUID", uuid, "for", token.email);
+          }
+        }
       }
 
       if (!token.provider) {
         token.provider = token.picture ? "google" : "credentials";
       }
-
       return token;
     },
+
     async session({ session, token }) {
-      const provider =
-        token.provider || (token.picture ? "google" : "credentials");
-      session.user._id = token._id;
-      session.user.email = token.email;
-      session.user.name = token.name;
-      session.user.provider = provider;
-      session.provider = provider;
-      return session;
-    },
-    async signIn({ user, account }) {
-      if (account.provider === "google") {
-        try {
-          // console.log(
-          //   "Google sign-in detected, creating user if not exists:",
-          //   user,
-          // );
-          const res = await fetch(
-            `${process.env.NEXTAUTH_URL}/api/createUser`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                name: user.name,
-                email: user.email,
-                password: "IS_GOOGLE_AUTH",
-              }),
-            },
-          );
-          const result = await res.json();
-          if (
-            result.message == "User created successfully" ||
-            result.message == "User with this email already exists"
-          ) {
-            console.log(
-              "User creation/check completed for Google sign-in:",
-              user.email,
-            );
+      if (session?.user) {
+        session.user._id = token._id || null;
+        session.user.email = token.email || session.user.email;
+        session.user.name = token.name || session.user.name;
+        session.user.provider = token.provider || "credentials";
+
+        // Extra safety check: if session.user._id is still not present, resolve it
+        if (!session.user._id || session.user._id === "undefined") {
+          if (session.user.email) {
+            const uuid = await resolveUserUuid(session.user.email, session.user.name);
+            if (uuid) {
+              session.user._id = uuid;
+            }
           }
-        } catch (error) {
-          console.error("Error creating user during sign-in:", error);
         }
       }
-      return true; // Allow sign in for other providers
+      session.provider = token.provider || "credentials";
+      return session;
+    },
+
+    async signIn({ user, account }) {
+      if (account?.provider === "google") {
+        try {
+          const uuid = await resolveUserUuid(user.email, user.name);
+          if (uuid) {
+            user._id = uuid;
+            console.log("[NextAuth] Google signIn: mapped UUID", uuid);
+          }
+        } catch (err) {
+          console.error("[NextAuth] Google signIn error:", err.message);
+        }
+      }
+      return true;
     },
   },
-});
+};
+
+const handler = NextAuth(authOptions);
+
 export { handler as GET, handler as POST };

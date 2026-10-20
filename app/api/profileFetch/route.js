@@ -1,15 +1,7 @@
-import mongoose from "mongoose";
-import Profile from "../../model/profileSchema";
 import { NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "../auth/[...nextauth]/route";
-
-try {
-  await mongoose.connect(`${process.env.MONGODB_URI}`);
-  console.log("Connected to MongoDB");
-} catch (error) {
-  console.log("Error connecting to MongoDB:", error.message);
-}
 
 export async function GET() {
   try {
@@ -17,27 +9,79 @@ export async function GET() {
     if (!session) {
       return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
     }
-    const isProfileExist = await Profile.findOne({
-      email: session?.user?.email,
-    });
-    if (!isProfileExist) {
+
+    let userId = session.user?._id;
+
+    // Fallback: recover userId by email if token._id wasn't set yet
+    if (!userId || userId === "undefined") {
+      if (session.user?.email) {
+        const { data: userRow } = await supabaseAdmin
+          .from("users")
+          .select("id")
+          .eq("email", session.user.email)
+          .maybeSingle();
+        userId = userRow?.id;
+      }
+    }
+
+    if (!userId || userId === "undefined") {
       return NextResponse.json(
         { message: "Profile does not exist" },
-        { status: 404 },
+        { status: 404 }
       );
     }
-    // console.log("Success");
+
+    const { data: profile, error } = await supabaseAdmin
+      .from("profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[profileFetch] Supabase error:", error.message);
+      return NextResponse.json(
+        { message: `Error fetching profile: ${error.message}` },
+        { status: 500 }
+      );
+    }
+
+    if (!profile) {
+      return NextResponse.json(
+        { message: "Profile does not exist" },
+        { status: 404 }
+      );
+    }
+
+    // Map snake_case DB columns back to camelCase for client compatibility
     return NextResponse.json({
       message: "Profile fetched successfully",
-      profile: isProfileExist.toObject(),
+      profile: {
+        _id:                profile.id,
+        name:               profile.name,
+        email:              profile.email,
+        goal:               profile.goal,
+        howMuchWeight:      profile.how_much_weight,
+        inHowManyDays:      profile.in_how_many_days,
+        foodType:           profile.food_type,
+        meat:               profile.meat,
+        meatPreferenceDays: profile.meat_preference_days,
+        dob:                profile.dob,
+        gender:             profile.gender,
+        kitchen:            profile.kitchen,
+        city:               profile.city,
+        state:              profile.state,
+        country:            profile.country,
+        weight:             profile.weight,
+        height:             profile.height,
+        allergies:          profile.allergies,
+        jobType:            profile.job_type,
+      },
     });
   } catch (error) {
-    console.log("Error fetching profile:", error.message);
+    console.error("[profileFetch] Error:", error.message);
     return NextResponse.json(
-      {
-        message: `Error fetching profile: ${error.message}`,
-      },
-      { status: 500 },
+      { message: `Error fetching profile: ${error.message}` },
+      { status: 500 }
     );
   }
 }
