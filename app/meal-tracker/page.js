@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { calculateNutrients } from "@/action/nutirentCalculation";
@@ -16,16 +16,15 @@ import {
   XCircle,
   Clock,
   Plus,
-  Flame,
-  Activity,
   Calendar,
   Utensils,
-  Sparkles,
-  ArrowLeft,
   AlertCircle,
+  Sun,
+  Moon,
 } from "lucide-react";
 
 const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const FIXED_MEALS = new Set(["breakfast", "lunch", "dinner"]);
 
 const NUTRIENT_FIELDS = [
   "kcal",
@@ -72,57 +71,61 @@ export default function MealTrackerPage() {
   const [selectedDay, setSelectedDay] = useState(null); // YYYY-MM-DD
   const [dayLog, setDayLog] = useState(null);
   const [weeklyTargets, setWeeklyTargets] = useState(null);
-  const [isDayPanelOpen, setIsDayPanelOpen] = useState(false);
+  const [theme, setTheme] = useState("dark");
+  const [isMonthLoading, setIsMonthLoading] = useState(false);
+  const [isDayLoading, setIsDayLoading] = useState(false);
   const [toast, setToast] = useState(null);
 
   // Report Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeMealType, setActiveMealType] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
-  const [photoSelected, setPhotoSelected] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
   const [scannedItems, setScannedItems] = useState([]);
+  const [initialItems, setInitialItems] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef(null);
   const [newMealName, setNewMealName] = useState("");
   const [isAddingMeal, setIsAddingMeal] = useState(false);
 
   useEffect(() => {
+    const savedTheme = window.localStorage.getItem("swast-theme");
+    const nextTheme = savedTheme === "light" ? "light" : "dark";
+    setTheme(nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+  }, []);
+
+  const toggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+    window.localStorage.setItem("swast-theme", nextTheme);
+  };
+
+  useEffect(() => {
     if (status === "unauthenticated") router.push("/signin");
   }, [status, router]);
 
-  useEffect(() => {
-    if (session?.user?._id) {
-      loadMonthData();
-      if (!weeklyTargets) loadNutrients();
-    }
-  }, [currentDate, session]);
-
   // Set default selected day to today
   useEffect(() => {
-    if (!selectedDay) {
-      const today = new Date().toISOString().split("T")[0];
-      setSelectedDay(today);
-    }
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    setSelectedDay((current) => current ?? today);
   }, []);
 
-  useEffect(() => {
-    if (selectedDay && session?.user?._id) {
-      loadDayLog(selectedDay);
-    }
-  }, [selectedDay, session]);
-
-  const loadNutrients = async () => {
+  const loadNutrients = useCallback(async () => {
     try {
       const data = await calculateNutrients(session.user._id);
       setWeeklyTargets(data);
     } catch (e) {
       console.error(e);
-      setToast({ type: "error", msg: "Could not update this meal." });
+      setToast({ type: "error", msg: "Could not load your nutrient targets." });
     }
-  };
+  }, [session?.user?._id]);
 
-  const loadMonthData = async () => {
+  const loadMonthData = useCallback(async () => {
+    setIsMonthLoading(true);
     try {
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth() + 1;
@@ -130,23 +133,42 @@ export default function MealTrackerPage() {
         `/api/meal-log/month?userId=${session.user._id}&year=${year}&month=${month}`
       );
       if (res.ok) setMonthData(await res.json());
+      else setToast({ type: "error", msg: "Could not load this month’s meal log." });
     } catch (e) {
       console.error(e);
-      setToast({ type: "error", msg: "Could not remove this meal." });
+      setToast({ type: "error", msg: "Could not load this month’s meal log." });
+    } finally {
+      setIsMonthLoading(false);
     }
-  };
+  }, [currentDate, session?.user?._id]);
 
-  const loadDayLog = async (dateStr) => {
+  const loadDayLog = useCallback(async (dateStr) => {
+    setIsDayLoading(true);
     try {
       const res = await fetch(
         `/api/meal-log?userId=${session.user._id}&date=${dateStr}`
       );
       if (res.ok) setDayLog(await res.json());
+      else setToast({ type: "error", msg: "Could not load this day’s meal log." });
     } catch (e) {
       console.error(e);
-      setToast({ type: "error", msg: "Could not add this meal." });
+      setToast({ type: "error", msg: "Could not load this day’s meal log." });
+    } finally {
+      setIsDayLoading(false);
     }
-  };
+  }, [session?.user?._id]);
+
+  useEffect(() => {
+    if (session?.user?._id) void loadMonthData();
+  }, [loadMonthData, session?.user?._id]);
+
+  useEffect(() => {
+    if (session?.user?._id) void loadNutrients();
+  }, [loadNutrients, session?.user?._id]);
+
+  useEffect(() => {
+    if (selectedDay && session?.user?._id) void loadDayLog(selectedDay);
+  }, [loadDayLog, selectedDay, session?.user?._id]);
 
   // Calendar Math
   const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
@@ -205,7 +227,8 @@ export default function MealTrackerPage() {
   };
 
   const deleteMeal = async (mealType) => {
-    if (!confirm(`Are you sure you want to remove ${mealType}?`)) return;
+    const isFixedMeal = FIXED_MEALS.has(mealType);
+    if (!confirm(`Are you sure you want to ${isFixedMeal ? "reset" : "remove"} ${mealType}?`)) return;
     try {
       const res = await fetch(
         `/api/meal-log?userId=${session.user._id}&date=${selectedDay}&mealType=${mealType}`,
@@ -251,11 +274,20 @@ export default function MealTrackerPage() {
   };
 
   const openReportModal = (mealType) => {
+    const items = dayLog?.[mealType]?.items || [];
     setActiveMealType(mealType);
-    setScannedItems(dayLog?.[mealType]?.items || []);
-    setPhotoSelected(false);
+    setScannedItems(items);
+    setInitialItems(items);
     setIsScanning(false);
     setIsModalOpen(true);
+  };
+
+  const closeReportModal = () => {
+    if (JSON.stringify(scannedItems) !== JSON.stringify(initialItems)) {
+      const shouldDiscard = window.confirm("Discard your unsaved food changes?");
+      if (!shouldDiscard) return;
+    }
+    setIsModalOpen(false);
   };
 
   const handleSimulateUpload = () => {
@@ -266,7 +298,6 @@ export default function MealTrackerPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setPhotoSelected(true);
     setIsScanning(true);
 
     try {
@@ -306,24 +337,33 @@ export default function MealTrackerPage() {
   };
 
   const handleManualSearch = async (e) => {
-    if (e.key === "Enter" && searchQuery.trim() !== "") {
-      try {
-        const res = await fetch("/api/calculate-food", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ foodName: searchQuery.trim(), quantity: 100 }),
-        });
-        if (res.ok) {
-          const newItem = await res.json();
-          setScannedItems((prev) => [...prev, newItem]);
-          setSearchQuery("");
-        } else {
-          setToast({ type: "error", msg: await getErrorMessage(res, "Could not find that food.") });
-        }
-      } catch (error) {
-        console.error(error);
-        setToast({ type: "error", msg: "Could not find that food." });
+    e.preventDefault();
+    const rawQuery = searchQuery.trim();
+    const servingMatch = rawQuery.match(/^(\d+(?:\.\d+)?)\s*(g|gram|grams|ml|milliliter|milliliters|piece|pieces)\s+(.+)$/i);
+    const foodName = servingMatch ? servingMatch[3].trim() : rawQuery;
+    const quantity = servingMatch ? Number(servingMatch[1]) : 100;
+    const unit = servingMatch ? servingMatch[2] : undefined;
+    if (!foodName || isSearching) return;
+
+    setIsSearching(true);
+    try {
+      const res = await fetch("/api/calculate-food", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ foodName, quantity, unit }),
+      });
+      if (!res.ok) {
+        setToast({ type: "error", msg: await getErrorMessage(res, "Could not find that food.") });
+        return;
       }
+      const newItem = await res.json();
+      setScannedItems((prev) => [...prev, newItem]);
+      setSearchQuery("");
+    } catch (error) {
+      console.error(error);
+      setToast({ type: "error", msg: "Could not find that food." });
+    } finally {
+      setIsSearching(false);
     }
   };
 
@@ -418,6 +458,8 @@ export default function MealTrackerPage() {
       {/* ── Toast ──────────────────────────────────────────────────────── */}
       {toast && (
         <div
+          role="status"
+          aria-live="polite"
           className={`fixed top-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-3 rounded-2xl shadow-2xl backdrop-blur-xl border ${
             toast.type === "success"
               ? "bg-emerald-950/90 border-emerald-600/50 text-emerald-200"
@@ -451,10 +493,18 @@ export default function MealTrackerPage() {
           </div>
         </div>
 
-        <div className="text-xs text-zinc-400 flex items-center gap-2">
+        <div className="text-xs text-zinc-400 flex items-center gap-2 flex-wrap">
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Eaten</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> Skipped</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-zinc-600" /> Pending</span>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            className="!p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white"
+          >
+            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
         </div>
       </div>
 
@@ -463,6 +513,11 @@ export default function MealTrackerPage() {
         <p className="mt-1 text-sm text-zinc-400 max-w-2xl">
           Track meal completion against daily calorie targets. Select any date to inspect foods or report consumed meals.
         </p>
+        {(isMonthLoading || isDayLoading) && (
+          <p role="status" className="mt-2 text-xs font-semibold text-red-400">
+            Updating your meal log…
+          </p>
+        )}
       </div>
 
       {/* ── Main Two-Column Calendar & Day Detail Layout ───────────────── */}
@@ -479,13 +534,17 @@ export default function MealTrackerPage() {
             </h2>
             <div className="flex items-center gap-1.5">
               <button
+                type="button"
                 onClick={handlePrevMonth}
+                aria-label="Show previous month"
                 className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 transition border border-zinc-800"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
+                type="button"
                 onClick={handleNextMonth}
+                aria-label="Show next month"
                 className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 transition border border-zinc-800"
               >
                 <ChevronRight className="w-4 h-4" />
@@ -519,13 +578,15 @@ export default function MealTrackerPage() {
               const isSelected = selectedDay === dateStr;
 
               return (
-                <div
+                <button
+                  type="button"
                   key={i}
                   onClick={() => {
                     setSelectedDay(dateStr);
-                    setIsDayPanelOpen(true);
                   }}
-                  className={`min-h-[70px] sm:min-h-[85px] p-2 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                  aria-label={`${new Date(`${dateStr}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}. ${log ? "Meal log available." : "No meals logged."}`}
+                  aria-pressed={isSelected}
+                  className={`min-h-[70px] sm:min-h-[85px] p-2 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 ${
                     isSelected
                       ? "bg-red-950/50 border-red-500 shadow-lg shadow-red-950/50"
                       : "bg-zinc-900/50 border-zinc-800/60 hover:border-zinc-700 hover:bg-zinc-900"
@@ -545,7 +606,7 @@ export default function MealTrackerPage() {
                       <StatusDot key={m} status={log?.[m]?.status} />
                     ))}
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -577,12 +638,13 @@ export default function MealTrackerPage() {
 
           {/* Daily nutrient progress */}
           {currentTarget && dayTotals && (
-            <div className="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/70 space-y-3">
-              <div className="flex items-center justify-between">
+            <details className="group p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/70" open>
+              <summary className="flex items-center justify-between cursor-pointer list-none">
                 <span className="text-xs font-bold text-zinc-300">Nutrient progress</span>
-                <span className="text-[11px] text-zinc-500">Consumed / daily target</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+                <span className="text-[11px] text-zinc-500 group-open:hidden">Show all</span>
+                <span className="text-[11px] text-zinc-500 hidden group-open:inline">Hide</span>
+              </summary>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3 mt-3">
                 {progressMetrics.map((metric) => (
                   <div key={metric.key}>
                     <div className="flex justify-between gap-2 text-[11px] font-bold text-zinc-300 mb-1">
@@ -602,7 +664,7 @@ export default function MealTrackerPage() {
                   </div>
                 ))}
               </div>
-            </div>
+            </details>
           )}
 
           {/* Meals List for Day */}
@@ -610,6 +672,7 @@ export default function MealTrackerPage() {
             {(dayLog?.mealsList || ["breakfast", "lunch", "dinner"]).map((meal) => {
               const mealStatus = dayLog?.[meal]?.status || "not_reported";
               const mealCalories = dayLog?.[meal]?.totalNutrients?.kcal || 0;
+              const isFixedMeal = FIXED_MEALS.has(meal);
 
               return (
                 <div
@@ -635,9 +698,11 @@ export default function MealTrackerPage() {
                         </span>
                       )}
                       <button
+                        type="button"
                         onClick={() => deleteMeal(meal)}
                         className="p-1 rounded-lg text-zinc-500 hover:text-red-400 transition"
-                        title="Delete meal slot"
+                        aria-label={isFixedMeal ? `Reset ${meal} log` : `Delete ${meal} meal slot`}
+                        title={isFixedMeal ? "Reset meal log" : "Delete meal slot"}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -686,7 +751,9 @@ export default function MealTrackerPage() {
                   Add
                 </button>
                 <button
+                  type="button"
                   onClick={() => setIsAddingMeal(false)}
+                  aria-label="Cancel adding a meal"
                   className="p-1.5 text-zinc-500 hover:text-white"
                 >
                   <X className="w-4 h-4" />
@@ -717,7 +784,9 @@ export default function MealTrackerPage() {
                 </h3>
               </div>
               <button
-                onClick={() => setIsModalOpen(false)}
+                onClick={closeReportModal}
+                type="button"
+                aria-label="Close food log"
                 className="p-1.5 rounded-full bg-zinc-900 text-zinc-400 hover:text-white"
               >
                 <X className="w-4 h-4" />
@@ -753,17 +822,26 @@ export default function MealTrackerPage() {
               </button>
 
               {/* Manual search bar */}
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={handleManualSearch}
-                  placeholder="Or type food & hit Enter (e.g. 100g Chicken, Brown Rice)..."
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white outline-none focus:border-red-500"
-                />
-              </div>
+              <form className="flex gap-2" onSubmit={handleManualSearch}>
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search a food, e.g. 100g chicken"
+                    aria-label="Search for a food to add"
+                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs text-white outline-none focus:border-red-500"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={!searchQuery.trim() || isSearching}
+                  className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-xs font-bold text-white transition"
+                >
+                  {isSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : "Add"}
+                </button>
+              </form>
 
               {/* Scanned Items List */}
               <div className="space-y-2">
@@ -782,14 +860,18 @@ export default function MealTrackerPage() {
                     <div className="flex items-center gap-2">
                       <input
                         type="number"
-                        value={item.userInput || 100}
+                        min="0"
+                        step="any"
+                        value={item.userInput ?? item.baseAmount ?? 100}
                         onChange={(e) => updateScannedItemQty(item.id, e.target.value)}
                         className="w-16 px-2 py-1 rounded bg-zinc-950 border border-zinc-800 text-center text-xs text-white"
                       />
                       <span className="text-xs text-zinc-500 w-6">{item.unitType || "g"}</span>
                       <button
+                        type="button"
                         onClick={() => removeScannedItem(item.id)}
                         className="p-1 text-zinc-500 hover:text-red-400"
+                        aria-label={`Remove ${item.name}`}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -807,7 +889,7 @@ export default function MealTrackerPage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeReportModal}
                   className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-400 hover:text-white"
                 >
                   Cancel
